@@ -1,0 +1,38 @@
+# Cortex instance configuration — sourced by the harness (bash).
+#
+# Copy to `factory.config` and edit for your machine. This file holds NO secrets — agent keys live
+# in ~/.config/buzz/agents/ and never here.
+#
+# Cortex is the operator for your Synapse standing agents. It assumes you have installed, separately:
+#   - Block's Buzz (Apache-2.0) built at $BUZZ_REPO  (relay + buzz-acp + buzz + buzz-admin)
+#   - @eborja/synapse in your vault                  (the engine + the synapse-mcp server)
+#   - an ACP runtime on PATH                         (claude-agent-acp, or cursor-agent)
+
+# ── Paths (this instance's identity — assigned directly, NOT ${VAR:-…} on purpose) ─────
+# These define which vault/relay/identity this instance drives. Hard-assigned so a stray exported
+# $SYNAPSE_VAULT in your shell cannot silently redirect the whole harness to another vault. Edit them.
+SYNAPSE_VAULT="$HOME/synapse/synapse-vault"                      # vault the agents brief from
+BUZZ_REPO="$HOME/synapse/buzz"                                   # your built Block/Buzz checkout
+BUZZ_OWNER_ENV="$HOME/.config/buzz/agents/owner.env"            # your Buzz identity (admin ops)
+
+# ── Relay / channel ─────────────────────────────────────────────────────────────
+BUZZ_DEFAULT_CHANNEL_NAME="${BUZZ_DEFAULT_CHANNEL_NAME:-general}"
+
+# ── Defaults (per-agent settings below can override) ────────────────────────────
+BUZZ_SYNAPSE_AGENT_COMMAND="${BUZZ_SYNAPSE_AGENT_COMMAND:-claude-agent-acp}"  # ACP runtime
+SYNAPSE_MCP_SURFACE="${SYNAPSE_MCP_SURFACE:-full}"                            # default MCP surface
+PROMPT_SOURCE="${PROMPT_SOURCE:-render}"   # render → `synapse render`; file → prompts/<agent>.system.md
+
+# ── Roster: the agents this instance runs ───────────────────────────────────────
+STANDING=(oracle curator)
+
+# ── Per-agent behaviour (optional; defaults apply when unset) ────────────────────
+# Flat vars named AGENT_<name>_<FIELD> (no associative arrays — macOS bash 3.2 lacks them):
+#   AGENT_<name>_HUB      the hub the agent briefs on            → `synapse render <agent> <hub>`
+#   AGENT_<name>_PROFILE  render profile: lean | standard | fat
+#   AGENT_<name>_SURFACE  MCP surface for THAT agent: skeleton | standard | full
+#                         (run oracle on `standard` so the read front door cannot mutate — the
+#                          create_* tools live on `full` only, enforced by the surface not a prompt)
+#   AGENT_<name>_RUNTIME  override the ACP runtime for one agent
+AGENT_oracle_HUB="hub-projects";  AGENT_oracle_PROFILE="standard";  AGENT_oracle_SURFACE="standard"
+AGENT_curator_HUB="hub-synapse";  AGENT_curator_PROFILE="standard"; AGENT_curator_SURFACE="full"

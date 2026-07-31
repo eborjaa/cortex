@@ -1,0 +1,14 @@
+Cortex
+Copyright (c) 2026 Emmanuel Borja
+Licensed under the MIT License (see LICENSE).
+
+This tool ORCHESTRATES, but does not include or redistribute, third-party software:
+
+- Buzz — https://github.com/block/buzz — Copyright Block, Inc., licensed Apache-2.0.
+  Cortex shells out to a Buzz you install and build yourself; it ships no Buzz source or
+  binaries. "Buzz" and "Block" are marks of Block, Inc.; Cortex is an independent,
+  unaffiliated tool and its name implies no endorsement.
+
+- @eborja/synapse — the context-vault engine Cortex expects in your vault.
+
+You are responsible for complying with the licenses of the software Cortex orchestrates.

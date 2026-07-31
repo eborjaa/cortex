@@ -1,0 +1,43 @@
+{
+  "name": "@eborja/cortex",
+  "version": "0.1.0",
+  "description": "Cortex — the operator for Synapse standing agents: scaffold, provision, run, and health-check role-based agents that brief from a Synapse vault and talk over Block's Buzz. Ships no Buzz code; orchestrates a separately-installed relay.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "cortex": "bin/cortex.mjs"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "templates/",
+    "README.md",
+    "NOTICE",
+    "CHANGELOG.md"
+  ],
+  "peerDependencies": {
+    "@eborja/synapse": "^0.4.0"
+  },
+  "peerDependenciesMeta": {
+    "@eborja/synapse": {
+      "optional": true
+    }
+  },
+  "keywords": [
+    "synapse",
+    "standing-agents",
+    "agent-harness",
+    "mcp",
+    "buzz",
+    "acp",
+    "local-first"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eborjaa/cortex.git"
+  },
+  "license": "MIT",
+  "author": "Emmanuel Borja"
+}

@@ -1,0 +1,11 @@
+# Cortex instance — runtime + generated artifacts
+logs/
+.cortex/
+*.pid
+
+# Real secrets live in ~/.config/buzz/ (never here); block any that leak in
+*.env
+!*.env.example
+
+.DS_Store
+node_modules/
