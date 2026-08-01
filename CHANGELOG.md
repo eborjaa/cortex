@@ -2,6 +2,13 @@
 
 All notable changes to `@eborja/cortex`.
 
+## 0.1.1 — 2026-07-31
+
+### Added
+- README + CONTRIBUTING (usage, architecture, the three-layer model, Buzz attribution, dev bar).
+
+Install: `npm install @eborja/cortex@^0.1.1`
+
 ## 0.1.0 — 2026-07-31
 
 ### Added
