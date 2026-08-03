@@ -2,6 +2,25 @@
 
 All notable changes to `@eborja/cortex`.
 
+## 0.2.1 — 2026-08-03
+
+### Added
+- **Per-agent tool sandbox.** Each standing agent runs in its own working dir
+  (`<instance>/.cortex/agents/<name>/`) whose generated `.claude/settings.json` denies the tools its
+  role shouldn't touch — shell, file edits, web, skills, and the async self-scheduling tools
+  (`Monitor`/`ScheduleWakeup`/`Task*`) that let a turn drip tokens for minutes. A read-only agent
+  (standard/skeleton surface) also loses `Task`; a full-surface orchestrator keeps the synchronous
+  `Task` to delegate. `deny` wins even under `bypass-permissions`, so it's enforced, not advisory.
+  Fixes standing agents wandering the filesystem, editing the wrong repo, and self-scheduling.
+- **Bounded turns.** `--idle-timeout` (300s) + `--max-turn-duration` (600s), overridable via
+  `BUZZ_ACP_IDLE_TIMEOUT` / `BUZZ_ACP_MAX_TURN_DURATION` — a hard per-turn token ceiling.
+
+### Fixed
+- **`cortex restart <agent>` now actually cycles a busy agent.** `stop` waits for the process to exit
+  and SIGKILLs a turn that ignores SIGTERM, so `restart` no longer sees it as "already running" and skips.
+
+Install: `npm install @eborja/cortex@^0.2.1`
+
 ## 0.2.0 — 2026-08-03
 
 ### Added

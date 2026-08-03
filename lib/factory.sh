@@ -174,6 +174,11 @@ stop_agent() {
   if [ -f "$(agent_env "$a")" ]; then # shellcheck disable=SC1090
     . "$(agent_env "$a")"; pkill -f "buzz-acp.*${SEC:0:24}" 2>/dev/null || true; fi
   [ -f "$INSTANCE/logs/$a.pid" ] && { kill "$(cat "$INSTANCE/logs/$a.pid")" 2>/dev/null || true; rm -f "$INSTANCE/logs/$a.pid"; }
+  # A busy turn ignores SIGTERM; wait, then SIGKILL — so `restart` never sees it as "already running".
+  if [ -n "${SEC:-}" ]; then
+    for _ in 1 2 3 4 5; do pgrep -f "buzz-acp.*${SEC:0:24}" >/dev/null 2>&1 || break; sleep 1; done
+    pgrep -f "buzz-acp.*${SEC:0:24}" >/dev/null 2>&1 && pkill -9 -f "buzz-acp.*${SEC:0:24}" 2>/dev/null || true
+  fi
   echo "  stopped $a"
 }
 

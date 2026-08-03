@@ -63,6 +63,24 @@ MCP="$INSTANCE/.cortex/mcp-${NAME}.sh"
 } >"$MCP"
 chmod +x "$MCP"
 
+# ── per-agent tool sandbox ────────────────────────────────────────────────────────
+# A working dir whose .claude/settings.json denies the tools this role has no business using.
+# claude-agent-acp reads project permissions from cwd, and `deny` wins even under
+# bypass-permissions (removes the tool outright), so a standing agent works THROUGH the vault MCP
+# and delegates — it cannot shell out, roam/edit the filesystem, or self-schedule (which is what
+# turned a reconcile into a 6-minute token-draining wander). Deny-list, not allow-list, so the
+# Buzz reply path and MCP are never accidentally blocked.
+AGDIR="$INSTANCE/.cortex/agents/$NAME"
+mkdir -p "$AGDIR/.claude"
+# NOTE: SendMessage is deliberately NOT denied — the Buzz reply path may route through it, and
+# blocking the reply is the one failure we must avoid. The token-drip risk was Monitor/ScheduleWakeup.
+DENY='"Bash","Edit","Write","NotebookEdit","WebFetch","WebSearch","Skill","ToolSearch","Monitor","ScheduleWakeup","TaskCreate","TaskGet","TaskList","TaskOutput","TaskStop","TaskUpdate","EnterPlanMode","ExitPlanMode"'
+# Only a write-capable agent (full MCP surface) keeps the synchronous Task tool to delegate to doers;
+# a read-only agent (standard/skeleton surface, e.g. oracle) does not spawn subagents.
+[ "$SURFACE" = "full" ] || DENY="$DENY,\"Task\""
+printf '{\n  "permissions": {\n    "deny": [%s]\n  }\n}\n' "$DENY" >"$AGDIR/.claude/settings.json"
+cd "$AGDIR"
+
 # cursor-agent needs the `acp` subcommand; claude-agent-acp takes none.
 AARGS=""; [ "$RUNTIME" = "cursor-agent" ] && AARGS="acp"
 
@@ -77,4 +95,6 @@ exec env \
   --mcp-command "$MCP" \
   --permission-mode bypass-permissions \
   --respond-to anyone \
+  --idle-timeout "${BUZZ_ACP_IDLE_TIMEOUT:-300}" \
+  --max-turn-duration "${BUZZ_ACP_MAX_TURN_DURATION:-600}" \
   >>"$INSTANCE/logs/$NAME.log" 2>&1
