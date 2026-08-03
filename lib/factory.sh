@@ -127,14 +127,34 @@ launchctl_ensure() {
   launchctl print "$id" >/dev/null 2>&1
 }
 
+# Wait until TCP :$1 has NO listener, up to $2 s. The relay graceful-drains for up to 30s on SIGTERM
+# while still holding the port, so a new relay started too soon cannot bind and launchd drops it.
+# Teardown calls this so "stopped" means the port is actually free, not just signalled.
+wait_port_free() {
+  local port="${1:-3000}" max="${2:-40}" i=0
+  while nc -z 127.0.0.1 "$port" >/dev/null 2>&1; do
+    i=$((i + 1)); [ "$i" -ge "$max" ] && { echo "  ! port $port still busy after ${max}s (relay may be hung)" >&2; return 1; }
+    sleep 1
+  done
+}
+
+# Wait until TCP :$1 HAS a listener, up to $2 s — an accurate "is it up yet?" instead of a fixed sleep.
+wait_port_up() {
+  local port="${1:-3000}" max="${2:-12}" i=0
+  until nc -z 127.0.0.1 "$port" >/dev/null 2>&1; do
+    i=$((i + 1)); [ "$i" -ge "$max" ] && return 1
+    sleep 1
+  done
+}
+
 start_relay() {
   mkdir -p "$INSTANCE/logs"
   nc -z 127.0.0.1 3000 >/dev/null 2>&1 && { ok "relay already up"; return 0; }
-  if [ -f "$LAUNCH_DIR/${LABEL_PREFIX}-relay.plist" ]; then launchctl_ensure relay; sleep 2
-    nc -z 127.0.0.1 3000 >/dev/null 2>&1 && { ok "relay started (launchd)"; return 0; }; fi
+  if [ -f "$LAUNCH_DIR/${LABEL_PREFIX}-relay.plist" ]; then launchctl_ensure relay
+    wait_port_up 3000 12 && { ok "relay started (launchd)"; return 0; }; fi
   CORTEX_INSTANCE="$INSTANCE" nohup bash "$LIB/run-relay.sh" >>"$INSTANCE/logs/relay.log" 2>&1 &
-  echo $! >"$INSTANCE/logs/relay.pid"; disown $! 2>/dev/null || true; sleep 3
-  nc -z 127.0.0.1 3000 >/dev/null 2>&1 && ok "relay started (nohup)" || { bad "relay failed"; tail -20 "$INSTANCE/logs/relay.log"; return 1; }
+  echo $! >"$INSTANCE/logs/relay.pid"; disown $! 2>/dev/null || true
+  wait_port_up 3000 12 && ok "relay started (nohup)" || { bad "relay failed"; tail -20 "$INSTANCE/logs/relay.log"; return 1; }
 }
 
 start_agent() {
@@ -160,7 +180,9 @@ stop_agent() {
 stop_relay() {
   [ -f "$LAUNCH_DIR/${LABEL_PREFIX}-relay.plist" ] && { launchctl bootout "gui/$(id -u)/${LABEL_PREFIX}-relay" 2>/dev/null || launchctl unload "$LAUNCH_DIR/${LABEL_PREFIX}-relay.plist" 2>/dev/null || true; }
   [ -f "$INSTANCE/logs/relay.pid" ] && { kill "$(cat "$INSTANCE/logs/relay.pid")" 2>/dev/null || true; rm -f "$INSTANCE/logs/relay.pid"; }
-  pkill -f 'buzz-relay' 2>/dev/null || true; echo "  stopped relay"
+  pkill -f 'buzz-relay' 2>/dev/null || true
+  wait_port_free 3000 || true          # block until the drain releases :3000, so a start after us can bind
+  echo "  stopped relay"
 }
 
 # Emit a LaunchAgent plist for the relay or an agent. All paths absolute; CORTEX_INSTANCE passed in.
@@ -223,8 +245,9 @@ install_launchagents() {
 
 launchd_load() {
   mkdir -p "$INSTANCE/logs"
+  wait_port_free 3000 || true          # a prior relay may still be draining — don't race its port
   launchctl_ensure relay && ok "loaded ${LABEL_PREFIX}-relay" || bad "load relay"
-  sleep 2; nc -z 127.0.0.1 3000 >/dev/null 2>&1 && ok "relay :3000 ready" || warn "relay not answering yet"
+  wait_port_up 3000 12 && ok "relay :3000 ready" || warn "relay not answering yet"
   for a in "${STANDING[@]}"; do launchctl_ensure "$a" && ok "loaded ${LABEL_PREFIX}-$a" || bad "load $a"; sleep 1; done
   return $FAIL
 }
@@ -232,6 +255,7 @@ launchd_load() {
 launchd_unload() {
   for a in "${STANDING[@]}"; do launchctl bootout "gui/$(id -u)/${LABEL_PREFIX}-$a" 2>/dev/null || true; echo "  unloaded $a"; done
   launchctl bootout "gui/$(id -u)/${LABEL_PREFIX}-relay" 2>/dev/null || true; echo "  unloaded relay"
+  wait_port_free 3000 || true          # finish the graceful drain before returning, so load is safe
 }
 
 test_mcp() {

@@ -2,6 +2,18 @@
 
 All notable changes to `@eborja/cortex`.
 
+## 0.1.2 — 2026-08-03
+
+### Fixed
+- **Relay restart/reload no longer races the graceful drain.** On SIGTERM the relay drains for up to
+  30s while still holding port 3000, so a new relay started immediately could not bind and launchd
+  dropped it (symptom: `cortex restart` left the relay down and agents crash-looping). Teardown
+  (`stop`, `launchd-unload`) now blocks until :3000 is actually free via `wait_port_free`, and
+  start/load wait for it to come up via `wait_port_up` instead of a fixed `sleep` — so `cortex
+  restart` reliably brings the relay back.
+
+Install: `npm install @eborja/cortex@^0.1.2`
+
 ## 0.1.1 — 2026-07-31
 
 ### Added
