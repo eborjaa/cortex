@@ -63,6 +63,23 @@ MCP="$INSTANCE/.cortex/mcp-${NAME}.sh"
 } >"$MCP"
 chmod +x "$MCP"
 
+# ── per-agent working dir (NO tool deny-list) ──────────────────────────────────────
+# A standing agent REPLIES on Buzz by shelling out to `buzz messages send` (the compiled-in base
+# prompt teaches this CLI; there is no channel-reply tool — `SendMessage` is agent-to-agent only).
+# That reply path needs the shell tool (`Bash`). An earlier build denied `Bash` (and file/web tools)
+# as a "tool sandbox" to stop a reconcile wandering the filesystem — but denying `Bash` SEVERED every
+# reply: the agent computed an answer, hunted for a reply tool that does not exist, and ended the turn
+# without posting. Verified live 2026-08-03 (curator: "I need Bash to run buzz messages send").
+#
+# So we do NOT sandbox tools here. The agent runs like oracle — no deny-list — bounded by the turn
+# caps below (--idle-timeout/--max-turn-duration) and its own throwaway working dir. Drift is a
+# role/prompt-layer concern, not a tool-removal one. If a future build reintroduces a lockdown, it
+# MUST keep the reply path working (e.g. a first-class Buzz reply tool) — never deny the shell.
+AGDIR="$INSTANCE/.cortex/agents/$NAME"
+mkdir -p "$AGDIR"
+rm -f "$AGDIR/.claude/settings.json"   # clear any deny-list a prior 0.2.1 build wrote (would block replies)
+cd "$AGDIR"
+
 # cursor-agent needs the `acp` subcommand; claude-agent-acp takes none.
 AARGS=""; [ "$RUNTIME" = "cursor-agent" ] && AARGS="acp"
 
@@ -77,4 +94,6 @@ exec env \
   --mcp-command "$MCP" \
   --permission-mode bypass-permissions \
   --respond-to anyone \
+  --idle-timeout "${BUZZ_ACP_IDLE_TIMEOUT:-300}" \
+  --max-turn-duration "${BUZZ_ACP_MAX_TURN_DURATION:-600}" \
   >>"$INSTANCE/logs/$NAME.log" 2>&1
