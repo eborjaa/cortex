@@ -312,7 +312,7 @@ agents_sync() {
 case "$CMD" in
   doctor) doctor ;;
   status) status ;;
-  start) case "${1:-all}" in all) start_relay; for a in "${STANDING[@]}"; do start_agent "$a"; done ;; relay) start_relay ;; *) start_agent "$1" ;; esac ;;
+  start) case "${1:-all}" in all) agents_sync; start_relay; for a in "${STANDING[@]}"; do start_agent "$a"; done ;; relay) start_relay ;; *) start_agent "$1" ;; esac ;;
   start-relay) start_relay ;;
   stop) case "${1:-all}" in all) for a in "${STANDING[@]}"; do stop_agent "$a"; done; stop_relay ;; relay) stop_relay ;; *) stop_agent "$1" ;; esac ;;
   restart) "$LIB/factory.sh" stop "${1:-all}"; "$LIB/factory.sh" start "${1:-all}" ;;
