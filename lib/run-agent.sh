@@ -63,24 +63,21 @@ MCP="$INSTANCE/.cortex/mcp-${NAME}.sh"
 } >"$MCP"
 chmod +x "$MCP"
 
-# ── per-agent tool sandbox ────────────────────────────────────────────────────────
-# A working dir whose .claude/settings.json denies ONLY the filesystem-drift vectors — shell, file
-# edits, and web — the tools that turned a reconcile into a 6-minute wander into the wrong repo.
-# claude-agent-acp reads project permissions from cwd, and `deny` wins even under bypass-permissions
-# (removes the tool outright), so a standing agent works THROUGH the vault MCP and delegates.
+# ── per-agent working dir (NO tool deny-list) ──────────────────────────────────────
+# A standing agent REPLIES on Buzz by shelling out to `buzz messages send` (the compiled-in base
+# prompt teaches this CLI; there is no channel-reply tool — `SendMessage` is agent-to-agent only).
+# That reply path needs the shell tool (`Bash`). An earlier build denied `Bash` (and file/web tools)
+# as a "tool sandbox" to stop a reconcile wandering the filesystem — but denying `Bash` SEVERED every
+# reply: the agent computed an answer, hunted for a reply tool that does not exist, and ended the turn
+# without posting. Verified live 2026-08-03 (curator: "I need Bash to run buzz messages send").
 #
-# Cost is bounded SEPARATELY by the turn caps below (--idle-timeout/--max-turn-duration), which is
-# reply-safe. Do NOT put that job on the deny-list: the Buzz reply/thread/handover path routes
-# through SendMessage, which is a DEFERRED tool the agent must load via ToolSearch first — so denying
-# ToolSearch (or SendMessage) silently kills the reply. Messaging + Task + ToolSearch stay ALLOWED so
-# the agent can reply, start a thread, and mention the next agent for a handover.
+# So we do NOT sandbox tools here. The agent runs like oracle — no deny-list — bounded by the turn
+# caps below (--idle-timeout/--max-turn-duration) and its own throwaway working dir. Drift is a
+# role/prompt-layer concern, not a tool-removal one. If a future build reintroduces a lockdown, it
+# MUST keep the reply path working (e.g. a first-class Buzz reply tool) — never deny the shell.
 AGDIR="$INSTANCE/.cortex/agents/$NAME"
-mkdir -p "$AGDIR/.claude"
-DENY='"Bash","Edit","Write","NotebookEdit","WebFetch","WebSearch"'
-# Only a write-capable agent (full MCP surface) keeps the synchronous Task tool to delegate to doers;
-# a read-only agent (standard/skeleton surface, e.g. oracle) does not spawn subagents.
-[ "$SURFACE" = "full" ] || DENY="$DENY,\"Task\""
-printf '{\n  "permissions": {\n    "deny": [%s]\n  }\n}\n' "$DENY" >"$AGDIR/.claude/settings.json"
+mkdir -p "$AGDIR"
+rm -f "$AGDIR/.claude/settings.json"   # clear any deny-list a prior 0.2.1 build wrote (would block replies)
 cd "$AGDIR"
 
 # cursor-agent needs the `acp` subcommand; claude-agent-acp takes none.

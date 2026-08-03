@@ -5,26 +5,24 @@ All notable changes to `@eborja/cortex`.
 ## 0.2.1 — 2026-08-03
 
 ### Added
-- **Per-agent tool sandbox.** Each standing agent runs in its own working dir
-  (`<instance>/.cortex/agents/<name>/`) whose generated `.claude/settings.json` denies **only the
-  filesystem/web drift vectors** — `Bash`, `Edit`, `Write`, `NotebookEdit`, `WebFetch`, `WebSearch` —
-  the tools that let a reconcile wander off into the wrong repo instead of working through the vault
-  MCP and delegating. A read-only agent (standard/skeleton surface) also loses `Task`; a full-surface
-  orchestrator keeps the synchronous `Task` to delegate to doers. `deny` wins even under
-  `bypass-permissions`, so it's enforced, not advisory.
-  - **Reply path stays open.** `SendMessage` (the Buzz reply/thread/handover tool) is a *deferred*
-    tool the agent must load via `ToolSearch` first — so `ToolSearch`, `SendMessage`, and `Task`
-    (full surface) are deliberately **kept**. Denying `ToolSearch` (as an earlier draft did) silently
-    killed every autonomous reply: the schema could never load, so the agent answered into the void.
-  - Turn cost is bounded **separately** by the turn caps below, not by the deny-list — so the
-    scheduling/`Task*` tools do not need denying.
 - **Bounded turns.** `--idle-timeout` (300s) + `--max-turn-duration` (600s), overridable via
   `BUZZ_ACP_IDLE_TIMEOUT` / `BUZZ_ACP_MAX_TURN_DURATION` — a hard per-turn wall-clock ceiling that
-  bounds token cost independently of the tool sandbox.
+  bounds an agent's token cost. This, not a tool deny-list, is how a runaway turn is contained.
+- **Per-agent working dir.** Each standing agent runs in its own throwaway dir
+  (`<instance>/.cortex/agents/<name>/`) for scratch/log isolation.
 
 ### Fixed
 - **`cortex restart <agent>` now actually cycles a busy agent.** `stop` waits for the process to exit
   and SIGKILLs a turn that ignores SIGTERM, so `restart` no longer sees it as "already running" and skips.
+
+### Note — tool deny-list explored and dropped
+An earlier draft of this release sandboxed each agent's tools (a generated `.claude/settings.json`
+`deny` list) to stop a reconcile wandering the filesystem. **It was removed before release** because
+it broke the core reply path: a standing agent publishes to Buzz by shelling out to `buzz messages
+send`, so denying `Bash` left agents computing correct answers and ending the turn without ever
+posting (verified live). Agents now run un-sandboxed (like the working `oracle`), bounded by the turn
+caps above. Any future lockdown MUST preserve the shell reply path — e.g. via a first-class Buzz
+reply tool — rather than deny `Bash`.
 
 Install: `npm install @eborja/cortex@^0.2.1`
 
