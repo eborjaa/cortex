@@ -2,6 +2,17 @@
 
 All notable changes to `@eborja/cortex`.
 
+## 0.2.0 — 2026-08-03
+
+### Added
+- **`cortex agents-sync`** — materialize every vault agent (`agent-<id>`) into a Claude Code subagent
+  type at `~/.claude/agents/<name>.md` (name + description from the agent's `purpose`, body from
+  `synapse render`, full toolset inherited). This lets an orchestrator Task-spawn any agent **by name**
+  with the full synapse toolset. Registry-driven — no agent list is hardcoded; add an agent to the
+  vault and re-run. `cortex start` runs it automatically so the delegable types stay current.
+
+Install: `npm install @eborja/cortex@^0.2.0`
+
 ## 0.1.2 — 2026-08-03
 
 ### Fixed

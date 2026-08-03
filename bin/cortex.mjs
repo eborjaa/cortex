@@ -25,7 +25,7 @@ const [cmd, ...rest] = process.argv.slice(2);
 
 const SHELL_CMDS = new Set([
   "doctor", "status", "start", "start-relay", "stop", "restart", "provision",
-  "install-launchagents", "launchd-load", "launchd-unload", "test-mcp",
+  "install-launchagents", "launchd-load", "launchd-unload", "test-mcp", "agents-sync",
 ]);
 
 if (!cmd || cmd === "--help" || cmd === "-h" || cmd === "help") {
@@ -36,6 +36,7 @@ usage: cortex <command> [args]
   init [dir] [--write]          scaffold a new instance (control room)
   doctor                        health check
   provision <name>              mint keys + register + join the channel
+  agents-sync                   render vault agents → ~/.claude/agents/ (delegable subagent types)
   start [all|relay|<name>]      launch relay + agents
   stop  [all|relay|<name>]
   restart [all|<name>]
