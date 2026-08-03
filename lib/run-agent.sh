@@ -64,17 +64,19 @@ MCP="$INSTANCE/.cortex/mcp-${NAME}.sh"
 chmod +x "$MCP"
 
 # ── per-agent tool sandbox ────────────────────────────────────────────────────────
-# A working dir whose .claude/settings.json denies the tools this role has no business using.
-# claude-agent-acp reads project permissions from cwd, and `deny` wins even under
-# bypass-permissions (removes the tool outright), so a standing agent works THROUGH the vault MCP
-# and delegates — it cannot shell out, roam/edit the filesystem, or self-schedule (which is what
-# turned a reconcile into a 6-minute token-draining wander). Deny-list, not allow-list, so the
-# Buzz reply path and MCP are never accidentally blocked.
+# A working dir whose .claude/settings.json denies ONLY the filesystem-drift vectors — shell, file
+# edits, and web — the tools that turned a reconcile into a 6-minute wander into the wrong repo.
+# claude-agent-acp reads project permissions from cwd, and `deny` wins even under bypass-permissions
+# (removes the tool outright), so a standing agent works THROUGH the vault MCP and delegates.
+#
+# Cost is bounded SEPARATELY by the turn caps below (--idle-timeout/--max-turn-duration), which is
+# reply-safe. Do NOT put that job on the deny-list: the Buzz reply/thread/handover path routes
+# through SendMessage, which is a DEFERRED tool the agent must load via ToolSearch first — so denying
+# ToolSearch (or SendMessage) silently kills the reply. Messaging + Task + ToolSearch stay ALLOWED so
+# the agent can reply, start a thread, and mention the next agent for a handover.
 AGDIR="$INSTANCE/.cortex/agents/$NAME"
 mkdir -p "$AGDIR/.claude"
-# NOTE: SendMessage is deliberately NOT denied — the Buzz reply path may route through it, and
-# blocking the reply is the one failure we must avoid. The token-drip risk was Monitor/ScheduleWakeup.
-DENY='"Bash","Edit","Write","NotebookEdit","WebFetch","WebSearch","Skill","ToolSearch","Monitor","ScheduleWakeup","TaskCreate","TaskGet","TaskList","TaskOutput","TaskStop","TaskUpdate","EnterPlanMode","ExitPlanMode"'
+DENY='"Bash","Edit","Write","NotebookEdit","WebFetch","WebSearch"'
 # Only a write-capable agent (full MCP surface) keeps the synchronous Task tool to delegate to doers;
 # a read-only agent (standard/skeleton surface, e.g. oracle) does not spawn subagents.
 [ "$SURFACE" = "full" ] || DENY="$DENY,\"Task\""

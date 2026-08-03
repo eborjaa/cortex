@@ -6,14 +6,21 @@ All notable changes to `@eborja/cortex`.
 
 ### Added
 - **Per-agent tool sandbox.** Each standing agent runs in its own working dir
-  (`<instance>/.cortex/agents/<name>/`) whose generated `.claude/settings.json` denies the tools its
-  role shouldn't touch — shell, file edits, web, skills, and the async self-scheduling tools
-  (`Monitor`/`ScheduleWakeup`/`Task*`) that let a turn drip tokens for minutes. A read-only agent
-  (standard/skeleton surface) also loses `Task`; a full-surface orchestrator keeps the synchronous
-  `Task` to delegate. `deny` wins even under `bypass-permissions`, so it's enforced, not advisory.
-  Fixes standing agents wandering the filesystem, editing the wrong repo, and self-scheduling.
+  (`<instance>/.cortex/agents/<name>/`) whose generated `.claude/settings.json` denies **only the
+  filesystem/web drift vectors** — `Bash`, `Edit`, `Write`, `NotebookEdit`, `WebFetch`, `WebSearch` —
+  the tools that let a reconcile wander off into the wrong repo instead of working through the vault
+  MCP and delegating. A read-only agent (standard/skeleton surface) also loses `Task`; a full-surface
+  orchestrator keeps the synchronous `Task` to delegate to doers. `deny` wins even under
+  `bypass-permissions`, so it's enforced, not advisory.
+  - **Reply path stays open.** `SendMessage` (the Buzz reply/thread/handover tool) is a *deferred*
+    tool the agent must load via `ToolSearch` first — so `ToolSearch`, `SendMessage`, and `Task`
+    (full surface) are deliberately **kept**. Denying `ToolSearch` (as an earlier draft did) silently
+    killed every autonomous reply: the schema could never load, so the agent answered into the void.
+  - Turn cost is bounded **separately** by the turn caps below, not by the deny-list — so the
+    scheduling/`Task*` tools do not need denying.
 - **Bounded turns.** `--idle-timeout` (300s) + `--max-turn-duration` (600s), overridable via
-  `BUZZ_ACP_IDLE_TIMEOUT` / `BUZZ_ACP_MAX_TURN_DURATION` — a hard per-turn token ceiling.
+  `BUZZ_ACP_IDLE_TIMEOUT` / `BUZZ_ACP_MAX_TURN_DURATION` — a hard per-turn wall-clock ceiling that
+  bounds token cost independently of the tool sandbox.
 
 ### Fixed
 - **`cortex restart <agent>` now actually cycles a busy agent.** `stop` waits for the process to exit
