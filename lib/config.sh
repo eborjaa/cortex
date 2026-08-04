@@ -23,6 +23,22 @@ cortex_find_instance() {
   return 1
 }
 
+# The vault's agent definitions declare their own capabilities (synapse decision-0008):
+#   addressable: true — holds a Buzz identity; can be @mentioned and replies in-thread
+#   autonomous:  true — runs on its own clock, unprompted
+# The PACKAGE owns the roster: we derive who to provision and run from `addressable`, so adding a
+# watchable agent is a vault edit, not a harness edit. Prints one bare agent name per line.
+cortex_agents_with_flag() {
+  local flag="$1" f id
+  for f in "$SYNAPSE_VAULT"/agents/agent-*.md; do
+    [ -e "$f" ] || return 0                    # glob didn't match — no agents
+    grep -qE "^${flag}:[[:space:]]*true[[:space:]]*$" "$f" || continue
+    id="$(basename "$f" .md)"; echo "${id#agent-}"
+  done
+}
+cortex_addressable_agents() { cortex_agents_with_flag addressable; }
+cortex_autonomous_agents()  { cortex_agents_with_flag autonomous; }
+
 # Load the instance: sets INSTANCE and sources its factory.config. Applies safe defaults after.
 cortex_load() {
   INSTANCE="$(cortex_find_instance)" || exit 1
@@ -34,7 +50,16 @@ cortex_load() {
   : "${BUZZ_SYNAPSE_AGENT_COMMAND:=claude-agent-acp}"
   : "${SYNAPSE_MCP_SURFACE:=full}"
   : "${PROMPT_SOURCE:=render}"
-  : "${STANDING:=}"
+  # STANDING — the agents this instance provisions and runs. DERIVED from the vault's
+  # `addressable: true` roster; set it in factory.config only to deliberately override (a subset for
+  # a test instance, say). An explicit-but-empty STANDING= means "derive", not "run nothing".
+  if [ -z "${STANDING+x}" ] || [ "${#STANDING[@]}" -eq 0 ] || [ -z "${STANDING[0]}" ]; then
+    STANDING=()
+    while IFS= read -r _a; do [ -n "$_a" ] && STANDING+=("$_a"); done <<EOF
+$(cortex_addressable_agents)
+EOF
+    [ "${#STANDING[@]}" -gt 0 ] || echo "cortex: no agent in $SYNAPSE_VAULT/agents declares 'addressable: true'" >&2
+  fi
   export SYNAPSE_VAULT BUZZ_REPO
 }
 

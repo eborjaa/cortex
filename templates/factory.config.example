@@ -24,7 +24,11 @@ SYNAPSE_MCP_SURFACE="${SYNAPSE_MCP_SURFACE:-full}"                            # 
 PROMPT_SOURCE="${PROMPT_SOURCE:-render}"   # render → `synapse render`; file → prompts/<agent>.system.md
 
 # ── Roster: the agents this instance runs ───────────────────────────────────────
-STANDING=(oracle curator)
+# DERIVED by default from the vault: every agent whose definition declares `addressable: true`
+# (synapse decision-0008) gets an identity and a process. Leave this unset — the package owns the
+# roster, so a new watchable agent needs a vault edit, not a harness edit.
+# Uncomment only to deliberately override, e.g. a test instance running a subset:
+# STANDING=(oracle curator)
 
 # ── Per-agent behaviour (optional; defaults apply when unset) ────────────────────
 # Flat vars named AGENT_<name>_<FIELD> (no associative arrays — macOS bash 3.2 lacks them):

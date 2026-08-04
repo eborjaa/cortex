@@ -2,6 +2,26 @@
 
 All notable changes to `@eborja/cortex`.
 
+## 0.3.0 — 2026-08-03
+
+### Added
+- **The roster is derived from the vault, not hand-maintained.** `STANDING` now defaults to every agent
+  whose definition declares `addressable: true` (synapse `decision-0008`), read via
+  `cortex_addressable_agents()`. Set `STANDING` in `factory.config` only to deliberately override — a
+  test instance running a subset. Adding a watchable agent is a vault edit; no harness change, no
+  per-install rewiring. `cortex_autonomous_agents()` exposes the companion `autonomous` flag.
+
+### Fixed
+- **`provision` writes `BUZZ_RELAY_URL` into the per-agent env file.** An addressable agent replies by
+  shelling out to `buzz messages send`, which needs a key **and** a relay URL. Only the key was written,
+  so a freshly provisioned agent could authenticate and still fail to publish — and would guess a URL,
+  which fails as a mention-preflight/exit-4 error rather than an auth error. One file now carries
+  everything needed to publish. Idempotent; existing env files are upgraded in place.
+
+### Changed
+- `doctor` reports "addressable agents (roster derived from the vault)", and a provisioned Buzz profile
+  reads "Synapse agent (<name>)" — "standing" no longer names a capability the flags describe precisely.
+
 ## 0.2.1 — 2026-08-03
 
 ### Added

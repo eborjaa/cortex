@@ -33,6 +33,20 @@ AGENT_PUB="$PUB"; AGENT_SEC="$SEC"
 # shellcheck disable=SC1090
 [ -f "$HOME/.config/buzz/relay.env" ] && . "$HOME/.config/buzz/relay.env"
 ADMIN_RELAY="${BUZZ_RELAY_URL:-ws://localhost:3000}"
+
+# An addressable agent replies by shelling out to `buzz messages send`, which needs BOTH a key and a
+# relay URL. The key was already here; the relay URL was not — so a freshly provisioned agent (one with
+# no memory of a previous run) could authenticate and still fail to publish, and would GUESS a URL.
+# Observed live 2026-08-04: reconciler burned two sends before finding relay.env on its own.
+# One file therefore carries everything an agent needs to publish. HTTP form — that is what the CLI wants.
+AGENT_RELAY="${BUZZ_RELAY_HTTP:-http://localhost:3000}"
+if grep -q '^BUZZ_RELAY_URL=' "$KEYFILE" 2>/dev/null; then
+  sed -i '' "s|^BUZZ_RELAY_URL=.*|BUZZ_RELAY_URL=$AGENT_RELAY|" "$KEYFILE"
+else
+  printf 'BUZZ_RELAY_URL=%s\n' "$AGENT_RELAY" >>"$KEYFILE"
+fi
+chmod 600 "$KEYFILE"
+echo "  relay url: $AGENT_RELAY"
 RELAY_SEC="$(grep '^BUZZ_RELAY_PRIVATE_KEY=' "$BUZZ_REPO/.env" 2>/dev/null | cut -d= -f2-)"
 [ -n "$RELAY_SEC" ] || { echo "provision: BUZZ_RELAY_PRIVATE_KEY missing in $BUZZ_REPO/.env" >&2; exit 1; }
 
@@ -45,7 +59,7 @@ else echo "provision FAIL relay add-member: $out" >&2; exit 1; fi
 
 export BUZZ_RELAY_URL="${BUZZ_RELAY_HTTP:-http://localhost:3000}"
 export BUZZ_PRIVATE_KEY="$AGENT_SEC"
-"$BUZZ_CLI" users set-profile --name "$NAME" --about "Synapse standing agent ($NAME)." >/dev/null
+"$BUZZ_CLI" users set-profile --name "$NAME" --about "Synapse agent ($NAME)." >/dev/null
 echo "  profile: display name '$NAME'"
 
 # shellcheck disable=SC1090
