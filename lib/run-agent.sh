@@ -88,7 +88,11 @@ AARGS=""; [ "$RUNTIME" = "cursor-agent" ] && AARGS="acp"
 # parsed as a positional). MODEL_ID=default means "let the runtime choose" — pass no --model at all.
 OPT=()
 [ -n "$MODEL_ID" ] && [ "$MODEL_ID" != "default" ] && OPT+=(--model "$MODEL_ID")
-[ "${RELAY_OBSERVER:-1}" = "1" ] && OPT+=(--relay-observer)
+[ -n "${AGENT_OWNER:-}" ] && OPT+=(--agent-owner "$AGENT_OWNER")
+if [ "${RELAY_OBSERVER:-1}" = "1" ]; then
+  OPT+=(--relay-observer)
+  [ -n "${AGENT_OWNER:-}" ] || echo "run-agent: RELAY_OBSERVER=1 but AGENT_OWNER is unset — observer frames will NOT be published (set AGENT_OWNER or BUZZ_OWNER_ENV in factory.config)" >&2
+fi
 
 exec env \
   RUST_LOG=info \

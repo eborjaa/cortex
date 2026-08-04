@@ -2,6 +2,26 @@
 
 All notable changes to `@eborja/cortex`.
 
+## 0.3.2 — 2026-08-04
+
+### Fixed
+- **`--relay-observer` published nothing without an owner.** Observer frames are encrypted *to the
+  owner*, so the flag alone is inert: `buzz-acp` logs `relay observer requested but no agent owner was
+  resolved at startup; observer frames will not be published` and continues, leaving the client's
+  Activity panel empty for an agent that is demonstrably working. Cortex now resolves **`AGENT_OWNER`**
+  (defaulting to the `PUB` in `BUZZ_OWNER_ENV`) and passes `--agent-owner`; startup logs
+  `relay observer enabled` / `agent owner: <pubkey>`. `run-agent` warns loudly if `RELAY_OBSERVER=1`
+  while no owner resolves, instead of failing silently.
+
+`AGENT_OWNER` is overridable because **the identity you watch from is often not the one you run admin
+ops from** — a desktop app and the CLI are separate pubkeys, and frames encrypted to one cannot be read
+by the other. Set it to the client where you actually read the Activity panel.
+
+Note: this governs observer delivery and the `respond-to` gate only. The "managed by <owner>" label a
+client renders comes from a **NIP-OA owner attestation** in the agent's kind:0 profile, which must be
+signed by the owner (`buzz agents draft-create` / `draft-update` → approve in the owner's Buzz client).
+A harness cannot self-assert its own ownership, by design.
+
 ## 0.3.1 — 2026-08-04
 
 ### Added
