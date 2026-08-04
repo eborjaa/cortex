@@ -83,7 +83,7 @@ doctor() {
   env | grep -q '^BUZZ_ACP_BASE_PROMPT_FILE=' && bad "BUZZ_ACP_BASE_PROMPT_FILE set — role prompts must use SYSTEM only" || ok "BASE prompt unset"
   ok "prompt source: $PROMPT_SOURCE"
 
-  echo "-- standing agents --"
+  echo "-- addressable agents (roster derived from the vault) --"
   local cid; cid="$(channel_id 2>/dev/null || true)"
   if [ -n "$cid" ]; then ok "#$BUZZ_DEFAULT_CHANNEL_NAME id $cid"
   elif ! nc -z 127.0.0.1 3000 >/dev/null 2>&1; then bad "#$BUZZ_DEFAULT_CHANNEL_NAME unknown — relay down"
