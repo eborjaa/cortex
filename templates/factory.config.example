@@ -22,6 +22,10 @@ BUZZ_DEFAULT_CHANNEL_NAME="${BUZZ_DEFAULT_CHANNEL_NAME:-general}"
 BUZZ_SYNAPSE_AGENT_COMMAND="${BUZZ_SYNAPSE_AGENT_COMMAND:-claude-agent-acp}"  # ACP runtime
 SYNAPSE_MCP_SURFACE="${SYNAPSE_MCP_SURFACE:-full}"                            # default MCP surface
 PROMPT_SOURCE="${PROMPT_SOURCE:-render}"   # render → `synapse render`; file → prompts/<agent>.system.md
+# A standing agent answers on its own initiative, so its model is a STANDING cost. Defaults to the
+# cheaper mid-tier; `default` defers to the runtime. List ids: buzz-acp models --agent-command <runtime>
+MODEL="${MODEL:-sonnet}"                   # global default; AGENT_<name>_MODEL overrides per agent
+RELAY_OBSERVER="${RELAY_OBSERVER:-1}"      # publish ACP observer frames → the client's Activity panel
 
 # ── Roster: the agents this instance runs ───────────────────────────────────────
 # DERIVED by default from the vault: every agent whose definition declares `addressable: true`

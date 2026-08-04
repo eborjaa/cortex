@@ -1,6 +1,6 @@
 {
   "name": "@eborja/cortex",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Cortex — the operator for Synapse standing agents: scaffold, provision, run, and health-check role-based agents that brief from a Synapse vault and talk over Block's Buzz. Ships no Buzz code; orchestrates a separately-installed relay.",
   "type": "module",
   "engines": {

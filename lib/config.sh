@@ -50,6 +50,14 @@ cortex_load() {
   : "${BUZZ_SYNAPSE_AGENT_COMMAND:=claude-agent-acp}"
   : "${SYNAPSE_MCP_SURFACE:=full}"
   : "${PROMPT_SOURCE:=render}"
+  # A standing agent is long-lived and answers on its own initiative, so its model choice is a
+  # STANDING cost, not a per-call one. Default to the cheaper mid-tier; override globally with MODEL=
+  # or per agent with AGENT_<name>_MODEL (e.g. a reasoning-heavy steward). MODEL=default defers to
+  # whatever the ACP runtime picks. `buzz-acp models --agent-command <runtime>` lists valid ids.
+  : "${MODEL:=sonnet}"
+  # Publish encrypted ACP observer frames so a client can render the agent's live work (the Activity
+  # panel). Without this the panel stays empty even while the agent runs. Set RELAY_OBSERVER=0 to mute.
+  : "${RELAY_OBSERVER:=1}"
   # STANDING — the agents this instance provisions and runs. DERIVED from the vault's
   # `addressable: true` roster; set it in factory.config only to deliberately override (a subset for
   # a test instance, say). An explicit-but-empty STANDING= means "derive", not "run nothing".
@@ -71,6 +79,7 @@ agent_hub()         { local d; d="$(_agent_get "$1" HUB)";     echo "${d:-hub-sy
 agent_profile()     { local d; d="$(_agent_get "$1" PROFILE)"; echo "${d:-standard}"; }
 agent_surface()     { local d; d="$(_agent_get "$1" SURFACE)"; echo "${d:-$SYNAPSE_MCP_SURFACE}"; }
 agent_runtime_for() { local d; d="$(_agent_get "$1" RUNTIME)"; echo "${d:-$BUZZ_SYNAPSE_AGENT_COMMAND}"; }
+agent_model()       { local d; d="$(_agent_get "$1" MODEL)";   echo "${d:-$MODEL}"; }
 
 # The consumer vault's installed CLIs (the engine + MCP server ship with @eborja/synapse).
 synapse_bin()     { echo "$SYNAPSE_VAULT/node_modules/.bin/synapse"; }
