@@ -90,7 +90,7 @@ doctor() {
   else bad "#$BUZZ_DEFAULT_CHANNEL_NAME missing — create it in Buzz Desktop"; fi
 
   for a in "${STANDING[@]}"; do
-    echo "  [$a]  hub=$(agent_hub "$a") surface=$(agent_surface "$a")"
+    echo "  [$a]  hub=$(agent_hub "$a") surface=$(agent_surface "$a") model=$(agent_model "$a")"
     if [ "$PROMPT_SOURCE" = "render" ]; then
       SYNAPSE_VAULT="$SYNAPSE_VAULT" "$(synapse_bin)" render "agent-$a" "$(agent_hub "$a")" --profile "$(agent_profile "$a")" >/dev/null 2>&1 \
         && ok "    prompt renders" || bad "    render fails for agent-$a / $(agent_hub "$a")"

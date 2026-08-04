@@ -32,6 +32,7 @@ SURFACE="$(agent_surface "$NAME")"
 HUB="$(agent_hub "$NAME")"
 PROFILE="$(agent_profile "$NAME")"
 RUNTIME="$(agent_runtime_for "$NAME")"
+MODEL_ID="$(agent_model "$NAME")"
 
 mkdir -p "$INSTANCE/logs" "$INSTANCE/.cortex" "$INSTANCE/prompts"
 echo "starting $NAME $(date -u +%Y-%m-%dT%H:%M:%SZ) · runtime=$RUNTIME surface=$SURFACE hub=$HUB" >>"$INSTANCE/logs/$NAME.log"
@@ -83,6 +84,12 @@ cd "$AGDIR"
 # cursor-agent needs the `acp` subcommand; claude-agent-acp takes none.
 AARGS=""; [ "$RUNTIME" = "cursor-agent" ] && AARGS="acp"
 
+# Optional args, built as an array so an unset one contributes nothing (an empty string would be
+# parsed as a positional). MODEL_ID=default means "let the runtime choose" — pass no --model at all.
+OPT=()
+[ -n "$MODEL_ID" ] && [ "$MODEL_ID" != "default" ] && OPT+=(--model "$MODEL_ID")
+[ "${RELAY_OBSERVER:-1}" = "1" ] && OPT+=(--relay-observer)
+
 exec env \
   RUST_LOG=info \
   PATH="$HOME/.local/bin:$PATH" \
@@ -96,4 +103,5 @@ exec env \
   --respond-to anyone \
   --idle-timeout "${BUZZ_ACP_IDLE_TIMEOUT:-300}" \
   --max-turn-duration "${BUZZ_ACP_MAX_TURN_DURATION:-600}" \
+  ${OPT[@]+"${OPT[@]}"} \
   >>"$INSTANCE/logs/$NAME.log" 2>&1

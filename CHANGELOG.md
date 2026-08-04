@@ -2,6 +2,22 @@
 
 All notable changes to `@eborja/cortex`.
 
+## 0.3.1 — 2026-08-04
+
+### Added
+- **`MODEL` (default `sonnet`) + `AGENT_<name>_MODEL`** — passed through as `buzz-acp --model`. A
+  standing agent is long-lived and answers on its own initiative, so its model choice is a **standing
+  cost**, not a per-call one; the default is therefore the cheaper mid-tier rather than whatever the
+  runtime picks. `MODEL=default` defers to the runtime. `doctor` now prints each agent's model.
+  Discover ids with `buzz-acp models --agent-command <runtime>`.
+- **`RELAY_OBSERVER` (default on)** — passes `--relay-observer`, which publishes encrypted ACP observer
+  frames over the relay. Without it a client's Activity panel reads "No ACP activity yet" for an agent
+  that is demonstrably working, because the frames were never sent. Set `RELAY_OBSERVER=0` to mute.
+
+Optional flags are assembled as an array and expanded guarded (`${OPT[@]+…}`) so an unset one
+contributes no argument — an empty string would be parsed as a positional, and an empty array trips
+`set -u`.
+
 ## 0.3.0 — 2026-08-03
 
 ### Added
