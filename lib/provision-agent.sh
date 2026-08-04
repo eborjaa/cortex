@@ -47,6 +47,46 @@ else
 fi
 chmod 600 "$KEYFILE"
 echo "  relay url: $AGENT_RELAY"
+
+# ── NIP-OA owner attestation (OPT-IN — default OFF) ────────────────────────────────
+# A client renders "managed by <owner>" from an `["auth", owner_pk, conditions, sig]` tag in the
+# agent's kind:0 profile — without it the agent reads as unowned ("owner unavailable"). The tag is a
+# signature by the OWNER over the agent's pubkey, so only the owner's secret can mint it; an agent
+# cannot declare its own owner (self-attestation is rejected outright by the SDK).
+#
+# WHY IT DEFAULTS OFF — the label costs you the mention picker.
+# Buzz Desktop derives `is_agent` from the presence of an owner attestation
+# (`desktop/src-tauri/src/nostr_convert.rs`: `is_agent: owner_pubkey.is_some()`), and its mention
+# autocomplete then DROPS any `is_agent` identity that is not in Desktop's OWN managed-agent list
+# (`desktop/src/features/messages/lib/useMentions.ts` → `isAgentIdentityInManagedList`). That gate
+# runs BEFORE the relay-directory (kind:10100) invocability check, so an externally-run agent — which
+# Desktop never manages — becomes un-@mentionable the moment it is attested, no matter how correctly
+# it is registered. Verified live 2026-08-04.
+#
+# So: attest only if you value the ownership label MORE than mentioning the agent from a Buzz client.
+# Observer frames do NOT need this — cortex passes `--agent-owner` explicitly (see run-agent.sh), and
+# BUZZ_AUTH_TAG would merely override it (buzz-acp resolves the tag with priority over the flag).
+# Empty conditions = unrestricted, matching what the relay itself issues.
+AUTH_EXAMPLE="$BUZZ_REPO/target/release/examples/compute_auth_tag"
+[ -x "$AUTH_EXAMPLE" ] || AUTH_EXAMPLE="$BUZZ_REPO/target/debug/examples/compute_auth_tag"
+if [ "${OWNER_ATTESTATION:-0}" != "1" ]; then
+  : # opt-in only; set OWNER_ATTESTATION=1 in factory.config to mint one
+elif grep -q '^BUZZ_AUTH_TAG=' "$KEYFILE" 2>/dev/null; then
+  echo "  owner attestation: already signed"
+elif [ -x "$AUTH_EXAMPLE" ]; then
+  OWNER_SEC_HEX="$(sed -n 's/^SEC=//p' "$BUZZ_OWNER_ENV" | head -1)"
+  if [ -n "$OWNER_SEC_HEX" ] && TAG="$("$AUTH_EXAMPLE" "$OWNER_SEC_HEX" "$AGENT_PUB" "" 2>/dev/null)" && [ -n "$TAG" ]; then
+    # SINGLE-QUOTE it. The tag is JSON, and this file is `.`-sourced: an unquoted value loses every
+    # `"` to shell quote-removal, so buzz-acp receives `[auth,<pk>,,<sig>]` and rejects it with
+    # "invalid JSON: expected value at line 1 column 2" — then silently falls back to an unowned agent.
+    printf "BUZZ_AUTH_TAG='%s'\n" "$TAG" >>"$KEYFILE"; chmod 600 "$KEYFILE"
+    echo "  owner attestation: signed by $(sed -n 's/^PUB=//p' "$BUZZ_OWNER_ENV" | head -1 | cut -c1-16)…"
+  else
+    echo "  owner attestation: SKIPPED (could not sign — agent will read as unowned)" >&2
+  fi
+else
+  echo "  owner attestation: SKIPPED (no compute_auth_tag in $BUZZ_REPO — build it to attest ownership)" >&2
+fi
 RELAY_SEC="$(grep '^BUZZ_RELAY_PRIVATE_KEY=' "$BUZZ_REPO/.env" 2>/dev/null | cut -d= -f2-)"
 [ -n "$RELAY_SEC" ] || { echo "provision: BUZZ_RELAY_PRIVATE_KEY missing in $BUZZ_REPO/.env" >&2; exit 1; }
 

@@ -58,6 +58,15 @@ cortex_load() {
   # Publish encrypted ACP observer frames so a client can render the agent's live work (the Activity
   # panel). Without this the panel stays empty even while the agent runs. Set RELAY_OBSERVER=0 to mute.
   : "${RELAY_OBSERVER:=1}"
+  # Observer frames are encrypted TO THE OWNER, so `--relay-observer` alone publishes nothing: buzz-acp
+  # warns "no agent owner was resolved at startup; observer frames will not be published" and carries on.
+  # Default the owner to the identity in BUZZ_OWNER_ENV. Override AGENT_OWNER when you watch from a
+  # DIFFERENT client identity than the one doing admin ops (a desktop app vs the CLI are separate
+  # pubkeys) — frames encrypted to one cannot be read by the other.
+  if [ -z "${AGENT_OWNER:-}" ] && [ -n "${BUZZ_OWNER_ENV:-}" ] && [ -f "$BUZZ_OWNER_ENV" ]; then
+    AGENT_OWNER="$(sed -n 's/^PUB=//p' "$BUZZ_OWNER_ENV" | head -1)"
+  fi
+  : "${AGENT_OWNER:=}"
   # STANDING — the agents this instance provisions and runs. DERIVED from the vault's
   # `addressable: true` roster; set it in factory.config only to deliberately override (a subset for
   # a test instance, say). An explicit-but-empty STANDING= means "derive", not "run nothing".

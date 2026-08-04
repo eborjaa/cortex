@@ -2,6 +2,51 @@
 
 All notable changes to `@eborja/cortex`.
 
+## 0.3.2 — 2026-08-04
+
+### Fixed
+- **An agent's tool shell now carries `BUZZ_PRIVATE_KEY` and `BUZZ_RELAY_URL`.** An agent replies by
+  shelling out to `buzz messages send`, but `buzz-acp` takes its identity as a **CLI flag**, so the
+  shell running the agent's tools inherited nothing. Every reply had to locate and source the per-agent
+  env file first — and a turn that spent its budget on the actual work simply ended without publishing.
+  That is a silent failed turn: the human sees no answer and the log shows a clean `end_turn`. Observed
+  live 2026-08-04 — oracle ran a full 2-minute investigation and posted nothing; with the export it
+  answered the same question in 17 seconds. No new exposure: this is the agent's own identity, which it
+  already reads from its own env file. `--relay-url` is still passed explicitly, so the WebSocket
+  connection is unaffected by the HTTP URL the CLI needs.
+- **`BUZZ_AUTH_TAG` is written single-quoted.** The value is JSON and the env file is `.`-sourced, so an
+  unquoted value lost every `"` to shell quote-removal; `buzz-acp` then rejected it with
+  `invalid JSON: expected value at line 1 column 2` and **silently fell back** to an unowned agent.
+
+### Changed
+- **The NIP-OA owner attestation is now opt-in (`OWNER_ATTESTATION=1`), default OFF.** Attesting an
+  agent makes Buzz Desktop set `is_agent: true` for it
+  (`desktop/src-tauri/src/nostr_convert.rs`: `is_agent: owner_pubkey.is_some()`), and Desktop's mention
+  autocomplete then DROPS any `is_agent` identity absent from Desktop's *own* managed-agent list
+  (`useMentions.ts` → `isAgentIdentityInManagedList`) — a gate that runs BEFORE the relay-directory
+  invocability check. Net effect: attesting an externally-run agent makes it **un-@mentionable** from a
+  Buzz client, in exchange for a "managed by <owner>" label. Verified live 2026-08-04. Observer frames
+  do not need the attestation — cortex passes `--agent-owner` explicitly.
+- `run-agent` warns when `BUZZ_AUTH_TAG` attests a different owner than `AGENT_OWNER`: the attestation
+  wins (buzz-acp resolves it with priority over the flag), silently redirecting observer frames to a
+  key the watching client cannot decrypt.
+- **`--relay-observer` published nothing without an owner.** Observer frames are encrypted *to the
+  owner*, so the flag alone is inert: `buzz-acp` logs `relay observer requested but no agent owner was
+  resolved at startup; observer frames will not be published` and continues, leaving the client's
+  Activity panel empty for an agent that is demonstrably working. Cortex now resolves **`AGENT_OWNER`**
+  (defaulting to the `PUB` in `BUZZ_OWNER_ENV`) and passes `--agent-owner`; startup logs
+  `relay observer enabled` / `agent owner: <pubkey>`. `run-agent` warns loudly if `RELAY_OBSERVER=1`
+  while no owner resolves, instead of failing silently.
+
+`AGENT_OWNER` is overridable because **the identity you watch from is often not the one you run admin
+ops from** — a desktop app and the CLI are separate pubkeys, and frames encrypted to one cannot be read
+by the other. Set it to the client where you actually read the Activity panel.
+
+Note: this governs observer delivery and the `respond-to` gate only. The "managed by <owner>" label a
+client renders comes from a **NIP-OA owner attestation** in the agent's kind:0 profile, which must be
+signed by the owner (`buzz agents draft-create` / `draft-update` → approve in the owner's Buzz client).
+A harness cannot self-assert its own ownership, by design.
+
 ## 0.3.1 — 2026-08-04
 
 ### Added

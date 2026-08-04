@@ -26,6 +26,11 @@ PROMPT_SOURCE="${PROMPT_SOURCE:-render}"   # render → `synapse render`; file �
 # cheaper mid-tier; `default` defers to the runtime. List ids: buzz-acp models --agent-command <runtime>
 MODEL="${MODEL:-sonnet}"                   # global default; AGENT_<name>_MODEL overrides per agent
 RELAY_OBSERVER="${RELAY_OBSERVER:-1}"      # publish ACP observer frames → the client's Activity panel
+# Observer frames are encrypted TO THE OWNER, so RELAY_OBSERVER alone publishes nothing. Defaults to the
+# pubkey in BUZZ_OWNER_ENV. Set this when you WATCH from a different identity than you run admin ops
+# from — a desktop app and the CLI are separate pubkeys, and frames encrypted to one are unreadable
+# by the other.
+# AGENT_OWNER="<64-char hex pubkey of the client you watch from>"
 
 # ── Roster: the agents this instance runs ───────────────────────────────────────
 # DERIVED by default from the vault: every agent whose definition declares `addressable: true`
