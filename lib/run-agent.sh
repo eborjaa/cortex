@@ -81,8 +81,11 @@ mkdir -p "$AGDIR"
 rm -f "$AGDIR/.claude/settings.json"   # clear any deny-list a prior 0.2.1 build wrote (would block replies)
 cd "$AGDIR"
 
-# cursor-agent needs the `acp` subcommand; claude-agent-acp takes none.
-AARGS=""; [ "$RUNTIME" = "cursor-agent" ] && AARGS="acp"
+# cursor-agent and opencode both need the `acp` subcommand; claude-agent-acp takes none.
+AARGS=""
+case "$RUNTIME" in
+  cursor-agent|opencode) AARGS="acp" ;;
+esac
 
 # Optional args, built as an array so an unset one contributes nothing (an empty string would be
 # parsed as a positional). MODEL_ID=default means "let the runtime choose" — pass no --model at all.

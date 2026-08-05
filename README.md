@@ -34,8 +34,8 @@ see [NOTICE](NOTICE).
 ## 🚀 Quick start
 
 Cortex assumes you've already installed, separately: a built **Buzz** checkout, **Docker** (Buzz's
-Postgres + Redis), **`@eborja/synapse`** in your vault, and an ACP runtime (`claude-agent-acp`, or
-`cursor-agent`).
+Postgres + Redis), **`@eborja/synapse`** in your vault, and an ACP runtime (`claude-agent-acp`,
+`opencode`, or `cursor-agent`).
 
 ```bash
 # 1. scaffold an instance (a "control room" — your private config)
@@ -127,7 +127,7 @@ harness.
 - **Bash** — works on macOS's default bash 3.2 (no associative arrays used).
 - **Buzz** (Block, Apache-2.0) built at `$BUZZ_REPO`, with Docker for its Postgres/Redis.
 - **`@eborja/synapse` ≥ 0.4** installed in your vault (provides `synapse` + `synapse-mcp`).
-- **An ACP runtime**: `claude-agent-acp` (recommended) or `cursor-agent`.
+- **An ACP runtime**: `claude-agent-acp` (recommended), `opencode` (sst/opencode ≥ 1.1 — uses whatever provider is configured in `~/.config/opencode/opencode.json`, so Anthropic, OpenAI, Ollama, custom endpoints, etc.), or `cursor-agent`.
 
 ---
 

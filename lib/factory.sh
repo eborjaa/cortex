@@ -64,6 +64,7 @@ doctor() {
   case "$rt" in
     claude-agent-acp) claude-agent-acp --version </dev/null >/dev/null 2>&1 && ok "claude-agent-acp runnable" || bad "claude-agent-acp not runnable" ;;
     cursor-agent)     cursor-agent acp --help >/dev/null 2>&1 && ok "cursor-agent acp" || bad "cursor-agent acp unavailable" ;;
+    opencode)         opencode acp --help >/dev/null 2>&1 && ok "opencode acp" || bad "opencode acp unavailable — needs sst/opencode >= 1.1" ;;
     *)                warn "unrecognized runtime $rt — skipping probe" ;;
   esac
   [ -x "$(synapse_bin)" ] && ok "synapse engine (vault)" || bad "synapse not installed in vault — npm i in $SYNAPSE_VAULT"
@@ -79,6 +80,7 @@ doctor() {
   case "$rt" in
     claude-agent-acp) claude auth status 2>/dev/null | grep -q '"loggedIn"[[:space:]]*:[[:space:]]*true' && ok "claude logged in" || bad "claude not logged in — claude auth login" ;;
     cursor-agent)     cursor-agent status 2>/dev/null | grep -qi 'Logged in' && ok "cursor-agent logged in" || bad "cursor-agent not logged in — cursor-agent login" ;;
+    opencode)         opencode --version >/dev/null 2>&1 && ok "opencode $(opencode --version 2>/dev/null) — providers via ~/.config/opencode/opencode.json" || bad "opencode not runnable" ;;
   esac
   env | grep -q '^BUZZ_ACP_BASE_PROMPT_FILE=' && bad "BUZZ_ACP_BASE_PROMPT_FILE set — role prompts must use SYSTEM only" || ok "BASE prompt unset"
   ok "prompt source: $PROMPT_SOURCE"
