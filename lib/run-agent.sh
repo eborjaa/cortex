@@ -81,8 +81,11 @@ mkdir -p "$AGDIR"
 rm -f "$AGDIR/.claude/settings.json"   # clear any deny-list a prior 0.2.1 build wrote (would block replies)
 cd "$AGDIR"
 
-# cursor-agent needs the `acp` subcommand; claude-agent-acp takes none.
-AARGS=""; [ "$RUNTIME" = "cursor-agent" ] && AARGS="acp"
+# cursor-agent and opencode both need the `acp` subcommand; claude-agent-acp takes none.
+AARGS=""
+case "$RUNTIME" in
+  cursor-agent|opencode) AARGS="acp" ;;
+esac
 
 # Optional args, built as an array so an unset one contributes nothing (an empty string would be
 # parsed as a positional). MODEL_ID=default means "let the runtime choose" — pass no --model at all.
@@ -116,15 +119,15 @@ exec env \
   RUST_LOG=info \
   PATH="$HOME/.local/bin:$PATH" \
   BUZZ_PRIVATE_KEY="$SEC" \
-  BUZZ_RELAY_URL="${BUZZ_RELAY_HTTP:-http://localhost:3000}" \
+  BUZZ_RELAY_URL="ws://${BUZZ_RELAY_URL#*://}" \
   ${BUZZ_AUTH_TAG:+BUZZ_AUTH_TAG="$BUZZ_AUTH_TAG"} \
   "$ACP" \
   --private-key "$SEC" \
-  --relay-url "${BUZZ_RELAY_URL:-ws://localhost:3000}" \
+  --relay-url "ws://${BUZZ_RELAY_URL#*://}" \
   --agent-command "$RUNTIME" \
   --agent-args "$AARGS" \
   --mcp-command "$MCP" \
-  --permission-mode bypass-permissions \
+  --permission-mode "${BUZZ_ACP_PERMISSION_MODE:-accept-edits}" \
   --respond-to anyone \
   --idle-timeout "${BUZZ_ACP_IDLE_TIMEOUT:-300}" \
   --max-turn-duration "${BUZZ_ACP_MAX_TURN_DURATION:-600}" \
