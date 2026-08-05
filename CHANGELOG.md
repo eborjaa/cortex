@@ -2,6 +2,17 @@
 
 All notable changes to `@eborja/cortex`.
 
+## Unreleased
+
+### Added
+- **`opencode` (sst/opencode) as an ACP runtime.** `opencode acp` is the official
+  Agent Client Protocol server subcommand — same hook the other runtimes expose, same
+  JSON-RPC over stdio. Set `BUZZ_SYNAPSE_AGENT_COMMAND=opencode` (global default) or
+  `AGENT_<name>_RUNTIME=opencode` per agent. The provider is whatever opencode is
+  configured with in `~/.config/opencode/opencode.json` (Anthropic, OpenAI, Ollama,
+  custom endpoints, etc.) — no provider-specific code in Cortex. `doctor` probes
+  `opencode acp --help` and `opencode --version`. Requires opencode ≥ 1.1.
+
 ## 0.3.2 — 2026-08-04
 
 ### Fixed

@@ -20,6 +20,10 @@ BUZZ_DEFAULT_CHANNEL_NAME="${BUZZ_DEFAULT_CHANNEL_NAME:-general}"
 
 # ── Defaults (per-agent settings below can override) ────────────────────────────
 BUZZ_SYNAPSE_AGENT_COMMAND="${BUZZ_SYNAPSE_AGENT_COMMAND:-claude-agent-acp}"  # ACP runtime
+                                                                              # also: opencode (sst/opencode >= 1.1; any provider configured
+                                                                              # in ~/.config/opencode/opencode.json — Anthropic, OpenAI,
+                                                                              # Ollama, custom endpoints, etc.)
+                                                                              # also: cursor-agent
 SYNAPSE_MCP_SURFACE="${SYNAPSE_MCP_SURFACE:-full}"                            # default MCP surface
 PROMPT_SOURCE="${PROMPT_SOURCE:-render}"   # render → `synapse render`; file → prompts/<agent>.system.md
 # A standing agent answers on its own initiative, so its model is a STANDING cost. Defaults to the
