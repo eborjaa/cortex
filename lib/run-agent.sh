@@ -119,15 +119,15 @@ exec env \
   RUST_LOG=info \
   PATH="$HOME/.local/bin:$PATH" \
   BUZZ_PRIVATE_KEY="$SEC" \
-  BUZZ_RELAY_URL="${BUZZ_RELAY_HTTP:-http://localhost:3000}" \
+  BUZZ_RELAY_URL="ws://${BUZZ_RELAY_URL#*://}" \
   ${BUZZ_AUTH_TAG:+BUZZ_AUTH_TAG="$BUZZ_AUTH_TAG"} \
   "$ACP" \
   --private-key "$SEC" \
-  --relay-url "${BUZZ_RELAY_URL:-ws://localhost:3000}" \
+  --relay-url "ws://${BUZZ_RELAY_URL#*://}" \
   --agent-command "$RUNTIME" \
   --agent-args "$AARGS" \
   --mcp-command "$MCP" \
-  --permission-mode bypass-permissions \
+  --permission-mode "${BUZZ_ACP_PERMISSION_MODE:-accept-edits}" \
   --respond-to anyone \
   --idle-timeout "${BUZZ_ACP_IDLE_TIMEOUT:-300}" \
   --max-turn-duration "${BUZZ_ACP_MAX_TURN_DURATION:-600}" \
