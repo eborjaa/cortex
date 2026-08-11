@@ -4,7 +4,35 @@ All notable changes to `@eborja/cortex`.
 
 ## Unreleased
 
+## 0.4.0 — 2026-08-11
+
 ### Added
+- **`cortex attest [<name>...]` — owner attestation + the relay directory record.** Provisioning an
+  agent is not the same as having a working one, and this step cannot live in `provision`: minting an
+  attestation requires the OWNER's secret key, which an operator must never hold. Skipping it is
+  invisible — the agent provisions, replies to mentions, and looks completely healthy, while
+  `users.agent_owner_pubkey` stays NULL (so the relay drops every kind:24200 observer frame and the
+  client's Activity panel is permanently empty) and no kind:10100 record exists (so the agent is
+  missing from @mention autocomplete). Nothing logs either omission. Hit live 2026-08-10 on the 13th
+  agent of an otherwise healthy instance.
+  Guards the irreversible case: `users.agent_owner_pubkey` is **first-mint-wins and immutable**
+  (buzz-db updates it only `WHERE agent_owner_pubkey IS NULL`), so attesting to the wrong identity is
+  permanent for that keypair and re-attesting is a silent no-op. The command derives the pubkey from
+  the pasted secret and refuses unless it matches `AGENT_OWNER`.
+- **`cortex sync-mcp-auth [<server>...]` — MCP OAuth for every agent.** `cursor-agent` stores MCP auth
+  **per project**, keyed by a slug of the CWD. Each agent runs from its own dir, so a human's
+  `cursor-agent mcp login <server>` authenticates their shell and **not one agent** — every agent then
+  reports `requires_authentication` for a server that is demonstrably logged in, which reads as a
+  broken login rather than a scoping rule. The stored bundle is self-contained, so one consent covers
+  every agent.
+- **`cortex install-mcp-plugin` — an operator MCP surface inside the vault.** Installs
+  `cortex_list_agents`, `cortex_agent_readiness`, `cortex_doctor`, `cortex_start_agent`, and
+  `cortex_sync_mcp_auth` into `<vault>/_meta/mcp-plugins/`, where synapse-mcp discovers them by
+  convention. A principal agent that can author an agent note but cannot see operator state will
+  report success after step 1 of 4. Attestation is deliberately **not** exposed — it needs the owner's
+  secret — but `cortex_agent_readiness` reports whether it has been done.
+- **`doctor` now reports per-agent MCP auth**, alongside the attestation check it already ran.
+  Completes the set of post-provision gaps that fail silently.
 - **`opencode` (sst/opencode) as an ACP runtime.** `opencode acp` is the official
   Agent Client Protocol server subcommand — same hook the other runtimes expose, same
   JSON-RPC over stdio. Set `BUZZ_SYNAPSE_AGENT_COMMAND=opencode` (global default) or
@@ -12,6 +40,23 @@ All notable changes to `@eborja/cortex`.
   configured with in `~/.config/opencode/opencode.json` (Anthropic, OpenAI, Ollama,
   custom endpoints, etc.) — no provider-specific code in Cortex. `doctor` probes
   `opencode acp --help` and `opencode --version`. Requires opencode ≥ 1.1.
+
+### Fixed
+- **Corrected two claims in `provision-agent.sh` that were wrong and actively misleading.** It said
+  (a) attesting costs you the mention picker, so default it OFF, and (b) "observer frames do NOT need
+  this — cortex passes `--agent-owner`". Following that guidance is how you get an agent that chats
+  normally with a permanently empty Activity panel. (a) was a **client** bug (block/buzz#4489), not a
+  property of attestation. (b) is false: `--agent-owner` sets only the agent's LOCAL belief about its
+  owner — enough to gate who it replies to — and mints no attestation, so the relay's record (a
+  different source of truth) stays NULL. Attestation is **required** for an observable agent, not a
+  cosmetic label.
+
+### Changed
+- `agent_env()` / `buzz_cli()` moved to `config.sh` — every command that touches a keyfile or the Buzz
+  CLI needs them, not just `factory.sh`. `run-agent.sh` exports `CORTEX_INSTANCE` into the per-agent
+  MCP wrapper so the operator plugin can resolve its instance.
+- `peerDependencies` on `@eborja/synapse` bumped to `^0.8.0` — the documented add-an-agent flow uses
+  `synapse new agent --addressable`, which does not exist before 0.8.0.
 
 ## 0.3.2 — 2026-08-04
 
