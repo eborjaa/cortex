@@ -4,6 +4,37 @@ All notable changes to `@eborja/cortex`.
 
 ## Unreleased
 
+### Added
+- **`cortex sync-directory [<name>...]` — refresh kind:10100 channel lists from live membership.**
+  `channel_ids` in the directory record is a snapshot taken at publish time and **nothing keeps it
+  fresh**: buzz-acp never writes kind:10100, the relay reads only `channel_add_policy` from it, and
+  Desktop treats the record as "near-static … this poll is also the ONLY refresh path". So adding an
+  agent to a channel from the UI leaves the record stale, which breaks three client behaviours at
+  once — the agent's profile channel list/count, the Activity panel's channel resolution
+  (`agentChannelIds` comes from this record), and mention-autocomplete eligibility.
+
+  The confusing part: **the agent itself is fine.** buzz-acp joins the new channel live off a
+  membership notification, so the symptom reads as "the agent doesn't know it's in the channel" when
+  the agent knows perfectly well and the *directory* is what's wrong. Hit live 2026-08-11.
+
+  Needs no human secret — the record is signed by the agent's own key — so unlike `attest` this runs
+  unattended. `doctor` now compares live membership against the published record and points at the
+  fix when they diverge.
+- **`doctor`: directory-freshness check per agent**, so this class of staleness stops being invisible.
+
+### Fixed
+- **A channel name containing a space no longer corrupts the directory record.** The record builder
+  split names on all whitespace, so a channel called `jira management` became two entries — which
+  desynchronizes `channels[]` from `channel_ids[]`. Desktop pairs those two arrays *positionally*, so
+  the misalignment is worse than a stale record: name *i* stops describing id *i*, and the Activity
+  panel would open the wrong channel. Now splits on newlines only, and asserts the two arrays are the
+  same length before publishing.
+
+### Changed
+- The kind:10100 publisher moved to `lib/directory-record.sh`, shared by `attest` and
+  `sync-directory`. A partial or short record silently un-mentions an agent, so there must be exactly
+  one implementation for it to drift out of.
+
 ## 0.4.0 — 2026-08-11
 
 ### Added

@@ -31,6 +31,8 @@ LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 . "$LIB/config.sh"
 cortex_load
+# shellcheck disable=SC1091
+. "$LIB/directory-record.sh"
 
 BUZZ="$(buzz_cli)"
 AUTH="$BUZZ_REPO/target/release/examples/compute_auth_tag"
@@ -77,46 +79,9 @@ Attesting to the wrong identity is PERMANENT for these keypairs." >&2
 fi
 echo "verified: key matches AGENT_OWNER ${derived:0:16}…"
 
-# Publish the kind:10100 agent-directory record — SEPARATE from the kind:0 attestation and equally
-# required. The client's agent directory is built from 10100; an agent absent from it is neither
-# mentionable nor observable. 10100 is REPLACEABLE, so this must carry the FULL record every time:
-# a partial write (e.g. `buzz channels set-add-policy`, which sends only channel_add_policy) silently
-# clobbers name/channel_ids/respond_to.
-publish_directory_record() {
-  local name="$1" pub="$2" sec="$3" ids=() names=() cid cname
-  # Membership is not derivable from `channels list` — that returns every VISIBLE channel — so probe.
-  while IFS=$'\t' read -r cid cname; do
-    [ -n "$cid" ] || continue
-    if BUZZ_RELAY_URL="$RELAY_HTTP" BUZZ_PRIVATE_KEY="$sec" \
-         "$BUZZ" channels members --channel "$cid" 2>/dev/null | grep -q "$pub"; then
-      ids+=("$cid"); names+=("$cname")
-    fi
-  done < <(BUZZ_RELAY_URL="$RELAY_HTTP" BUZZ_PRIVATE_KEY="$sec" "$BUZZ" channels list 2>/dev/null \
-             | python3 -c 'import json,sys
-for c in json.load(sys.stdin): print(c["channel_id"] + "\t" + c["name"])' 2>/dev/null)
-
-  if [ "${#ids[@]}" -eq 0 ]; then
-    echo "      ! in no channels — skipping directory record (it would be unmentionable anyway)" >&2
-    return 1
-  fi
-
-  local content event
-  content="$(NAME="$name" IDS="$(printf '%s\n' "${ids[@]}")" NAMES="$(printf '%s\n' "${names[@]}")" \
-    python3 -c 'import json,os
-n = os.environ["NAME"]
-print(json.dumps({
-    "name": n, "display_name": n, "agent_type": "agent",
-    "about": f"Synapse agent ({n}).",
-    "channels": os.environ["NAMES"].split(),
-    "channel_ids": os.environ["IDS"].split(),
-    "capabilities": [], "status": "online",
-    "respond_to": "anyone", "channel_add_policy": "anyone",
-}))')"
-  event="$("$SIGN" "$sec" 10100 "$content")" || return 1
-  curl -sS -X POST "$RELAY_HTTP/events" -H "X-Pubkey: $pub" \
-       -H 'Content-Type: application/json' --data-binary "$event" >/dev/null || return 1
-  echo "      directory record: ${names[*]}"
-}
+# The kind:10100 directory record comes from lib/directory-record.sh — shared with
+# `cortex sync-directory`, which refreshes it after any membership change. One implementation:
+# a partial or short record silently un-mentions the agent, so it must not drift between callers.
 
 count=0
 for name in "${TARGETS[@]}"; do

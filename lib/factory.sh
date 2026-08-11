@@ -69,6 +69,38 @@ is_channel_member() {
 # That record (`users.agent_owner_pubkey`) is FIRST-MINT-WINS and IMMUTABLE, so a wrong value is
 # permanent for that keypair and re-attesting is a silent no-op. Surfaced here because the failure is
 # otherwise invisible: agent healthy, turn runs, reply posts, panel eternally empty, nothing logged.
+# Does the agent's PUBLISHED channel list still match its LIVE membership?
+#
+# `channel_ids` in the kind:10100 directory record is a snapshot taken at publish time, and nothing
+# refreshes it — not buzz-acp (it never writes 10100), not the relay (it reads only
+# channel_add_policy), not Desktop (it treats the record as "near-static"). So adding an agent to a
+# channel through the UI leaves the record wrong, which breaks the agent's profile channel list, the
+# Activity panel's channel resolution, and mention eligibility — while the AGENT itself is fine,
+# having joined the channel live off a membership notification. That asymmetry is why the symptom
+# reads as "the agent doesn't know it's in the channel". Warn, don't fail: the fix is one command.
+agent_directory_fresh() {
+  local a="$1" pub sec live published
+  [ -f "$(agent_env "$a")" ] || return 0
+  # shellcheck disable=SC1090
+  pub="$(sed -n 's/^PUB=//p' "$(agent_env "$a")" | head -1)"
+  sec="$(sed -n 's/^SEC=//p' "$(agent_env "$a")" | head -1)"
+  [ -n "$pub" ] && [ -n "$sec" ] || return 0
+  command -v docker >/dev/null 2>&1 || return 0
+
+  live="$(docker exec buzz-postgres psql -U "${PG_USER}" -d "${PG_DB}" -tAc \
+    "SELECT count(*) FROM channel_members WHERE pubkey=decode('$pub','hex');" 2>/dev/null | tr -d '[:space:]')" || return 0
+  published="$(docker exec buzz-postgres psql -U "${PG_USER}" -d "${PG_DB}" -tAc \
+    "SELECT json_array_length((content::json->'channel_ids')) FROM events
+      WHERE kind=10100 AND pubkey=decode('$pub','hex') AND deleted_at IS NULL LIMIT 1;" 2>/dev/null | tr -d '[:space:]')" || return 0
+  [ -n "$live" ] && [ -n "$published" ] || return 0
+
+  if [ "$live" = "$published" ]; then
+    ok "    directory record current ($published channel(s))"
+  else
+    warn "    directory STALE — in $live channel(s), record lists $published: cortex sync-directory $a"
+  fi
+}
+
 # Does this agent have the MCP logins the human already performed?
 #
 # `cursor-agent` keys MCP OAuth by PROJECT — a slug of the CWD — and every agent runs from its own
@@ -179,6 +211,7 @@ doctor() {
     agent_running "$a" && ok "    process running" || warn "    process down (start when ready)"
     observer_owner_ok "$a"
     agent_mcp_auth_ok "$a"
+    agent_directory_fresh "$a"
   done
 
   [ "$FAIL" -eq 0 ] && { echo; echo "Doctor clean."; } || { echo; echo "Doctor FAILED ($FAIL) — fix each FAIL, then re-run cortex doctor"; }
@@ -401,6 +434,7 @@ case "$CMD" in
   # this process's exported agent environment.
   attest) CORTEX_INSTANCE="$INSTANCE" bash "$LIB/attest-agent.sh" "$@" ;;
   sync-mcp-auth) CORTEX_INSTANCE="$INSTANCE" bash "$LIB/sync-mcp-auth.sh" "$@" ;;
+  sync-directory) CORTEX_INSTANCE="$INSTANCE" bash "$LIB/sync-directory.sh" "$@" ;;
   # Installs the operator MCP plugin INTO the vault, where synapse-mcp discovers it by convention —
   # so every agent briefed from that vault can see operator state without per-machine MCP config.
   install-mcp-plugin)
