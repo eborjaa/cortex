@@ -69,6 +69,26 @@ is_channel_member() {
 # That record (`users.agent_owner_pubkey`) is FIRST-MINT-WINS and IMMUTABLE, so a wrong value is
 # permanent for that keypair and re-attesting is a silent no-op. Surfaced here because the failure is
 # otherwise invisible: agent healthy, turn runs, reply posts, panel eternally empty, nothing logged.
+# Does this agent have the MCP logins the human already performed?
+#
+# `cursor-agent` keys MCP OAuth by PROJECT — a slug of the CWD — and every agent runs from its own
+# dir, so a human's `cursor-agent mcp login <server>` authenticates their shell and NOT ONE AGENT.
+# The agent then reports "<server>: requires_authentication" for a server that is demonstrably
+# logged in, which reads as a broken login rather than a scoping rule. Warn (not fail): plenty of
+# instances use no authenticated MCP server at all.
+agent_mcp_auth_ok() {
+  local projects="${CURSOR_HOME:-$HOME/.cursor}/projects" slug
+  [ -d "$projects" ] || return 0                     # not a cursor-agent runtime — nothing to check
+  # Any auth at all configured on this machine? If not, there is nothing to be missing.
+  ls "$projects"/*/mcp-auth.json >/dev/null 2>&1 || return 0
+  slug="$(printf '%s' "${INSTANCE#/}/.cortex/agents/$1" | tr -c 'A-Za-z0-9' '-')"
+  if [ -f "$projects/$slug/mcp-auth.json" ]; then
+    ok "    MCP auth present"
+  else
+    warn "    no MCP auth for this agent — cortex sync-mcp-auth (auth is per-CWD; your login covers none)"
+  fi
+}
+
 observer_owner_ok() {
   local a="$1" pub recorded
   [ -n "${AGENT_OWNER:-}" ] || return 0
@@ -158,6 +178,7 @@ doctor() {
     fi
     agent_running "$a" && ok "    process running" || warn "    process down (start when ready)"
     observer_owner_ok "$a"
+    agent_mcp_auth_ok "$a"
   done
 
   [ "$FAIL" -eq 0 ] && { echo; echo "Doctor clean."; } || { echo; echo "Doctor FAILED ($FAIL) — fix each FAIL, then re-run cortex doctor"; }
