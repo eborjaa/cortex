@@ -63,6 +63,9 @@ Then @mention `oracle` / `curator` in your Buzz channel.
 cortex init [dir] [--write]        # scaffold a new instance
 cortex doctor                      # health check (binaries, relay, agents, MCP, per-agent surface)
 cortex provision <name>            # mint keys + register on the relay + join the channel
+cortex attest [<name>...]          # owner attestation + relay directory record (prompts for the
+                                   #   owner secret — required for an OBSERVABLE agent, see below)
+cortex sync-mcp-auth [<server>...] # copy your MCP OAuth into each agent's per-CWD project store
 cortex start [all|relay|<name>]    # launch
 cortex stop  [all|relay|<name>]    # stop (per-agent; won't touch the others)
 cortex restart [all|<name>]
@@ -73,6 +76,44 @@ cortex status
 ```
 
 Run inside an instance dir (one holding `factory.config`), or set `CORTEX_INSTANCE`.
+
+---
+
+## ➕ Adding an agent
+
+There is no agent registry to edit: **the roster is derived from the vault.** Any note in
+`agents/` with `addressable: true` is a standing agent. The three steps after that all fail
+*silently* when skipped — the agent looks healthy while being un-runnable, unobservable, or toolless
+— so each one is a command rather than a paragraph you have to remember.
+
+```bash
+# 1. author the agent note (or use the synapse_create_agent MCP tool with addressable: true)
+synapse new agent <name> --addressable
+
+# 2. provision + run it
+cortex start <name>                # mints keys, registers on the relay, joins channels
+
+# 3. make it OBSERVABLE — needs the owner's secret, so a human runs this
+cortex attest <name>               # owner attestation + kind:10100 directory record
+
+# 4. give it your MCP logins
+cortex sync-mcp-auth               # per-CWD OAuth stores; a human's login does not cover agents
+
+cortex doctor                      # confirms all of the above landed
+```
+
+**Why 3 and 4 are separate human steps, and what breaks without them:**
+
+| Skipped | Symptom | Why it's invisible |
+|---|---|---|
+| `attest` | Agent replies normally, but its **Activity panel is permanently empty** | `--agent-owner` sets only the agent's *local* belief; the relay's `users.agent_owner_pubkey` stays NULL, and NIP-AO makes it drop every observer frame for an agent whose owner it can't verify. Nothing is logged. |
+| the kind:10100 record (also done by `attest`) | Agent is missing from **@mention autocomplete** | The client builds its agent directory from kind:10100. Absent = not offered, with no error. |
+| `sync-mcp-auth` | Agent reports `requires_authentication` for a server **you already logged into** | MCP auth is stored per *project*, keyed by CWD slug. Each agent runs from its own dir, so your shell's login covers none of them. |
+
+> ⚠️ `users.agent_owner_pubkey` is **first-mint-wins and immutable** (`buzz-db/src/user.rs` updates it
+> only `WHERE agent_owner_pubkey IS NULL`). Attesting to the wrong identity is *permanent for that
+> keypair* and re-attesting is a silent no-op — the only recovery is new keys. `cortex attest` derives
+> the pubkey from the secret you paste and refuses to proceed unless it matches `AGENT_OWNER`.
 
 ---
 

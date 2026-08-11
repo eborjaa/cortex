@@ -50,25 +50,34 @@ fi
 chmod 600 "$KEYFILE"
 echo "  relay url: $AGENT_RELAY"
 
-# ── NIP-OA owner attestation (OPT-IN — default OFF) ────────────────────────────────
+# ── NIP-OA owner attestation (OPT-IN here; the real path is `cortex attest`) ──────
 # A client renders "managed by <owner>" from an `["auth", owner_pk, conditions, sig]` tag in the
 # agent's kind:0 profile — without it the agent reads as unowned ("owner unavailable"). The tag is a
 # signature by the OWNER over the agent's pubkey, so only the owner's secret can mint it; an agent
 # cannot declare its own owner (self-attestation is rejected outright by the SDK).
-#
-# WHY IT DEFAULTS OFF — the label costs you the mention picker.
-# Buzz Desktop derives `is_agent` from the presence of an owner attestation
-# (`desktop/src-tauri/src/nostr_convert.rs`: `is_agent: owner_pubkey.is_some()`), and its mention
-# autocomplete then DROPS any `is_agent` identity that is not in Desktop's OWN managed-agent list
-# (`desktop/src/features/messages/lib/useMentions.ts` → `isAgentIdentityInManagedList`). That gate
-# runs BEFORE the relay-directory (kind:10100) invocability check, so an externally-run agent — which
-# Desktop never manages — becomes un-@mentionable the moment it is attested, no matter how correctly
-# it is registered. Verified live 2026-08-04.
-#
-# So: attest only if you value the ownership label MORE than mentioning the agent from a Buzz client.
-# Observer frames do NOT need this — cortex passes `--agent-owner` explicitly (see run-agent.sh), and
-# BUZZ_AUTH_TAG would merely override it (buzz-acp resolves the tag with priority over the flag).
 # Empty conditions = unrestricted, matching what the relay itself issues.
+#
+# ── CORRECTION 2026-08-10: two claims that used to live here were WRONG ───────────
+# This block previously said (a) attesting costs you the mention picker, so default it OFF, and
+# (b) "Observer frames do NOT need this — cortex passes `--agent-owner` explicitly." Both are false,
+# and together they produced an agent that chats normally with a permanently empty Activity panel:
+#
+# (a) The mention-picker breakage was a CLIENT bug (block/buzz#4489), not a property of attestation:
+#     Desktop derived `is_agent` from the attestation and then dropped any `is_agent` identity absent
+#     from its OWN managed list, which an externally-run agent can never join. Fixed in
+#     desktop/src/features/messages/lib/useMentions.ts — channel members are no longer filtered by
+#     the managed-agent list. With a patched client, attesting costs nothing.
+#
+# (b) `--agent-owner` sets only the agent's LOCAL belief about its owner — enough to gate who it
+#     replies to. It mints NO attestation, so `users.agent_owner_pubkey` stays NULL, and NIP-AO makes
+#     the relay drop every kind:24200 observer frame for an agent whose owner it cannot verify.
+#     Local belief and the relay's record are DIFFERENT sources of truth; only the attestation writes
+#     the second one.
+#
+# So: attestation is REQUIRED for an observable agent, not a cosmetic label. It stays opt-in *here*
+# only because provisioning must never hold the owner's secret key — run `cortex attest [<name>]`,
+# which also publishes the kind:10100 directory record that @mentions and the observer subscription
+# both depend on.
 AUTH_EXAMPLE="$BUZZ_REPO/target/release/examples/compute_auth_tag"
 [ -x "$AUTH_EXAMPLE" ] || AUTH_EXAMPLE="$BUZZ_REPO/target/debug/examples/compute_auth_tag"
 if [ "${OWNER_ATTESTATION:-0}" != "1" ]; then
@@ -97,12 +106,51 @@ if [ "$rc" -eq 0 ]; then echo "  relay member: ok"
 elif echo "$out" | grep -qi already; then echo "  relay member: already"
 else echo "provision FAIL relay add-member: $out" >&2; exit 1; fi
 
+# ── Ownership sanity check — the relay's record is PERMANENT ────────────────────
+# `users.agent_owner_pubkey` is FIRST-MINT-WINS and immutable: buzz-db/src/user.rs sets it only
+# `WHERE agent_owner_pubkey IS NULL` ("first-mint-wins ... its value cannot change under us").
+# NIP-AO then makes every observer frame conditional on it — "Relay MUST verify is_agent_owner(agent,
+# owner)" — so an agent whose relay-recorded owner is not the identity you WATCH from publishes
+# telemetry that the relay silently discards. The client's Activity panel shows "No ACP activity yet"
+# forever, with no error on either side, and RE-ATTESTING CANNOT FIX IT: the profile updates and the
+# relay column does not. The only remedy is a new keypair.
+#
+# Cost us hours on 2026-08-07: a throwaway attestation signed by the CLI owner permanently bound all
+# 12 agents to that identity, after which every correct fix was inert. So: warn LOUDLY the moment the
+# relay's record disagrees with AGENT_OWNER, while rotating the key is still cheap.
+if [ -n "${AGENT_OWNER:-}" ] && command -v docker >/dev/null 2>&1; then
+  recorded="$(docker exec buzz-postgres psql -U buzz -d buzz -tAc \
+    "SELECT COALESCE(encode(agent_owner_pubkey,'hex'),'') FROM users WHERE pubkey=decode('$AGENT_PUB','hex');" \
+    2>/dev/null | tr -d '[:space:]')" || recorded=""
+  if [ -n "$recorded" ] && [ "$recorded" != "$AGENT_OWNER" ]; then
+    echo "  !! OWNERSHIP MISMATCH — the relay permanently records this agent's owner as" >&2
+    echo "     ${recorded:0:16}… but AGENT_OWNER (the identity you watch from) is ${AGENT_OWNER:0:16}…" >&2
+    echo "     Observer frames WILL be dropped and the Activity panel will stay empty." >&2
+    echo "     agent_owner_pubkey is immutable — fix by rotating this agent's key:" >&2
+    echo "       cortex stop $NAME && rm ~/.config/buzz/agents/$NAME.env && cortex provision $NAME" >&2
+    echo "     then attest with the WATCHED identity BEFORE the agent authenticates again." >&2
+  fi
+fi
+
 [ -f "$BUZZ_OWNER_ENV" ] || { echo "provision FAIL: owner env missing at $BUZZ_OWNER_ENV — set BUZZ_OWNER_ENV in factory.config" >&2; exit 1; }
 
 export BUZZ_RELAY_URL="${BUZZ_RELAY_HTTP:-http://localhost:3000}"
 export BUZZ_PRIVATE_KEY="$AGENT_SEC"
+# EXPORT the attestation before publishing the profile. The tag above was appended to $KEYFILE, not
+# exported, so `users set-profile` ran without it and published a kind:0 carrying NO auth tag — the
+# attestation existed on disk but never reached the profile. That silently breaks the consumer that
+# needs it: a client derives "managed by <owner>" AND its observer-frame decrypt set from the kind:0
+# auth tag (buzz-acp's own profile_event_is_agent() looks for exactly this 4-element tag), so the
+# Activity panel stayed empty with no error anywhere. Verified against the relay DB 2026-08-07:
+# kind:0 tags were `[]` until the tag was exported, then `[["auth",<owner>,"",<sig>]]`.
+# Re-read from the keyfile so this works on the already-attested path too.
+if grep -q '^BUZZ_AUTH_TAG=' "$KEYFILE" 2>/dev/null; then
+  BUZZ_AUTH_TAG="$(sed -n "s/^BUZZ_AUTH_TAG='\(.*\)'$/\1/p" "$KEYFILE" | head -1)"
+  export BUZZ_AUTH_TAG
+fi
 "$BUZZ_CLI" users set-profile --name "$NAME" --about "Synapse agent ($NAME)." >/dev/null
-echo "  profile: display name '$NAME'"
+echo "  profile: display name '$NAME'${BUZZ_AUTH_TAG:+ (+ owner attestation)}"
+unset BUZZ_AUTH_TAG   # must NOT leak into the owner-signed channel ops below (self-attestation error)
 
 # shellcheck disable=SC1090
 . "$BUZZ_OWNER_ENV"; export BUZZ_PRIVATE_KEY="$SEC"     # owner signs the channel add

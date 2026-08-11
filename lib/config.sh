@@ -50,6 +50,10 @@ cortex_load() {
   : "${BUZZ_SYNAPSE_AGENT_COMMAND:=claude-agent-acp}"
   : "${SYNAPSE_MCP_SURFACE:=full}"
   : "${PROMPT_SOURCE:=render}"
+  # The hub an agent briefs on when AGENT_<name>_HUB is unset. `hub-synapse` is the reference vault's
+  # root hub, but a consumer vault names its hubs whatever it likes (this REL vault uses `moc-*`), and
+  # rendering against a hub that does not exist fails the launch. Override in factory.config.
+  : "${DEFAULT_HUB:=hub-synapse}"
   # A standing agent is long-lived and answers on its own initiative, so its model choice is a
   # STANDING cost, not a per-call one. Default to the cheaper mid-tier; override globally with MODEL=
   # or per agent with AGENT_<name>_MODEL (e.g. a reasoning-heavy steward). MODEL=default defers to
@@ -77,19 +81,64 @@ $(cortex_addressable_agents)
 EOF
     [ "${#STANDING[@]}" -gt 0 ] || echo "cortex: no agent in $SYNAPSE_VAULT/agents declares 'addressable: true'" >&2
   fi
+  cortex_load_secrets
   export SYNAPSE_VAULT BUZZ_REPO
+}
+
+# Load credentials the VAULT's own recipes need at run time (Zephyr tokens, automation-user
+# passwords, …) from dotenv files, exporting every key.
+#
+# Why this exists: a standing agent shells out for real work — it even REPLIES by running
+# `buzz messages send` (see run-agent.sh) — but buzz-acp receives its identity as a CLI flag, so the
+# shell running the agent's tools inherits nothing. A vault recipe that says
+# `curl -H "Authorization: Bearer $ZEPHYR_TOKEN" …` therefore ran with an EMPTY token and failed with
+# a 401 that looks like a broken recipe rather than a missing credential.
+#
+# Precedence (later wins, so an instance can override a vault-wide default):
+#   1. $SYNAPSE_VAULT/.env   — vault-wide (shared by every instance driving this vault)
+#   2. $INSTANCE/.env        — this instance only
+# Both are gitignored by convention; secrets never live in factory.config.
+#
+# `set -a` exports each assignment, so the values survive into run-agent.sh's `exec env` (which
+# preserves the ambient environment) and into the per-agent MCP wrapper it spawns.
+cortex_load_secrets() {
+  local f
+  for f in "$SYNAPSE_VAULT/.env" "$INSTANCE/.env"; do
+    [ -f "$f" ] || continue
+    set -a
+    # shellcheck disable=SC1090
+    . "$f"
+    set +a
+  done
 }
 
 # Per-agent accessors: read AGENT_<name>_<FIELD> (flat vars), else fall through to the default.
 # Agent names are sanitized to a valid var suffix so hyphenated names don't break the lookup.
 _agent_var() { local key; key="$(printf '%s' "$1" | tr -c 'a-zA-Z0-9' '_')"; echo "AGENT_${key}_$2"; }
 _agent_get() { local v d; v="$(_agent_var "$1" "$2")"; eval "d=\${$v:-}"; echo "$d"; }
-agent_hub()         { local d; d="$(_agent_get "$1" HUB)";     echo "${d:-hub-synapse}"; }
+agent_hub()         { local d; d="$(_agent_get "$1" HUB)";     echo "${d:-$DEFAULT_HUB}"; }
 agent_profile()     { local d; d="$(_agent_get "$1" PROFILE)"; echo "${d:-standard}"; }
 agent_surface()     { local d; d="$(_agent_get "$1" SURFACE)"; echo "${d:-$SYNAPSE_MCP_SURFACE}"; }
 agent_runtime_for() { local d; d="$(_agent_get "$1" RUNTIME)"; echo "${d:-$BUZZ_SYNAPSE_AGENT_COMMAND}"; }
 agent_model()       { local d; d="$(_agent_get "$1" MODEL)";   echo "${d:-$MODEL}"; }
 
+# Extra environment for THIS agent's MCP server, as a ';'-separated KEY=VALUE list. Emitted into the
+# per-agent MCP wrapper by run-agent.sh, so a vault plugin can be configured per agent.
+#
+# This exists because a surface is a coarse dial: synapse registers its handover tools on `full` only,
+# so an agent that merely needs handovers must run `full` — and would inherit every other `full`
+# capability (e.g. a vault plugin's write tools) as an accident of that one requirement. Per-agent MCP
+# env lets the instance narrow a plugin without demoting the agent off `full`. Example:
+#   AGENT_qa_lead_MCP_ENV="ZEPHYR_MCP_READONLY=1"
+agent_mcp_env()     { _agent_get "$1" MCP_ENV; }
+
 # The consumer vault's installed CLIs (the engine + MCP server ship with @eborja/synapse).
 synapse_bin()     { echo "$SYNAPSE_VAULT/node_modules/.bin/synapse"; }
 synapse_mcp_bin() { echo "$SYNAPSE_VAULT/node_modules/.bin/synapse-mcp"; }
+
+# An agent's keyfile: PUB / SEC / relay URL / BUZZ_AUTH_TAG. Every command that provisions, attests,
+# or runs an agent reads it, so it belongs here rather than in any one command.
+agent_env()  { echo "$HOME/.config/buzz/agents/$1.env"; }
+# The separately-installed Buzz CLI. Debug build wins when present — that is what a developer
+# iterating on Buzz has just built, and silently preferring a stale release binary hides their work.
+buzz_cli()   { local c="$BUZZ_REPO/target/debug/buzz"; [ -x "$c" ] || c="$BUZZ_REPO/target/release/buzz"; echo "$c"; }

@@ -55,11 +55,25 @@ export BUZZ_ACP_SYSTEM_PROMPT_FILE="$SYS"
 
 # ── per-agent MCP wrapper: pins the vault + THIS agent's surface + plugin discovery ──
 MCP="$INSTANCE/.cortex/mcp-${NAME}.sh"
+MCP_ENV="$(agent_mcp_env "$NAME")"
 {
   echo '#!/usr/bin/env bash'
   echo "export SYNAPSE_VAULT=\"$SYNAPSE_VAULT\""
   echo "export SYNAPSE_MCP_SURFACE=\"$SURFACE\""
+  # Which instance this agent belongs to — the operator MCP plugin (templates/mcp-plugins/cortex.mjs)
+  # needs it to answer "is this agent actually running / attested / authed". Harmless when unused.
+  echo "export CORTEX_INSTANCE=\"$INSTANCE\""
   [ -n "${SYNAPSE_MCP_PLUGINS:-}" ] && echo "export SYNAPSE_MCP_PLUGINS=\"$SYNAPSE_MCP_PLUGINS\""
+  # Vault secrets (Zephyr token, …) so a vault MCP plugin can reach its upstream API. The wrapper is
+  # exec'd by the ACP runtime, which does NOT forward our environment, so re-source rather than assume.
+  [ -f "$SYNAPSE_VAULT/.env" ] && echo "set -a; . \"$SYNAPSE_VAULT/.env\"; set +a"
+  [ -f "$INSTANCE/.env" ]      && echo "set -a; . \"$INSTANCE/.env\"; set +a"
+  # Per-agent plugin config (AGENT_<name>_MCP_ENV="K=V;K2=V2") — narrows a plugin for THIS agent only.
+  if [ -n "$MCP_ENV" ]; then
+    printf '%s\n' "$MCP_ENV" | tr ';' '\n' | while IFS= read -r kv; do
+      [ -n "$kv" ] && echo "export ${kv}"
+    done
+  fi
   echo "exec \"$(synapse_mcp_bin)\" \"\$@\""
 } >"$MCP"
 chmod +x "$MCP"
@@ -78,7 +92,19 @@ chmod +x "$MCP"
 # MUST keep the reply path working (e.g. a first-class Buzz reply tool) — never deny the shell.
 AGDIR="$INSTANCE/.cortex/agents/$NAME"
 mkdir -p "$AGDIR"
-rm -f "$AGDIR/.claude/settings.json"   # clear any deny-list a prior 0.2.1 build wrote (would block replies)
+# Clear only a settings.json that carries a DENY-LIST (what the 0.2.1 build wrote — it severed replies).
+# A settings.json without one is intentional operator config and must survive: claude-agent-acp reads
+# the user's ~/.claude/settings.json, and its resolvePermissionMode() accepts only
+# default|acceptEdits|dontAsk|plan|bypassPermissions. A user whose GLOBAL Claude Code config selects a
+# newer mode (e.g. "auto") makes every agent here die at session/new with
+#   -32603 Internal error · "Invalid permissions.defaultMode: auto."
+# buzz-acp then requeues with backoff, so the symptom is an agent that is "up", receives the mention,
+# and silently never replies (verified live 2026-08-06, all 12 REL agents). A project-scoped
+# settings.json pins a mode the adapter understands without touching the user's global config —
+# blowing it away every launch would resurrect the bug on every restart.
+if [ -f "$AGDIR/.claude/settings.json" ] && grep -q '"deny"' "$AGDIR/.claude/settings.json" 2>/dev/null; then
+  rm -f "$AGDIR/.claude/settings.json"
+fi
 cd "$AGDIR"
 
 # cursor-agent and opencode both need the `acp` subcommand; claude-agent-acp takes none.

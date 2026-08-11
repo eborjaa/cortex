@@ -25,6 +25,7 @@ const [cmd, ...rest] = process.argv.slice(2);
 
 const SHELL_CMDS = new Set([
   "doctor", "status", "start", "start-relay", "stop", "restart", "provision",
+  "attest", "sync-mcp-auth", "install-mcp-plugin",
   "install-launchagents", "launchd-load", "launchd-unload", "test-mcp", "agents-sync",
 ]);
 
@@ -36,6 +37,11 @@ usage: cortex <command> [args]
   init [dir] [--write]          scaffold a new instance (control room)
   doctor                        health check
   provision <name>              mint keys + register + join the channel
+  attest [<name>...]            owner attestation + relay directory record (prompts for the owner
+                                secret; without it an agent runs but its activity is invisible)
+  sync-mcp-auth [<server>...]   copy your MCP OAuth into each agent's per-CWD project store
+  install-mcp-plugin            install the operator MCP tools into the vault (cortex_list_agents,
+                                cortex_agent_readiness, cortex_doctor, …) so agents can see run state
   agents-sync                   render vault agents → ~/.claude/agents/ (delegable subagent types)
   start [all|relay|<name>]      launch relay + agents
   stop  [all|relay|<name>]

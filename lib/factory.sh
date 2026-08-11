@@ -19,8 +19,8 @@ bad()  { echo "  FAIL $*"; FAIL=1; }
 warn() { echo "  warn $*"; }
 FAIL=0
 
-agent_env()  { echo "$HOME/.config/buzz/agents/$1.env"; }
-buzz_cli()   { local c="$BUZZ_REPO/target/debug/buzz"; [ -x "$c" ] || c="$BUZZ_REPO/target/release/buzz"; echo "$c"; }
+# agent_env() and buzz_cli() now live in config.sh — every command that touches an agent keyfile or
+# the Buzz CLI needs them, not just this file.
 runtime()    { echo "$BUZZ_SYNAPSE_AGENT_COMMAND"; }
 
 agent_running() {
@@ -45,10 +45,47 @@ for c in json.load(sys.stdin):
 sys.exit(1)' )
 }
 
+# Is pubkey $2 a member of channel $1?
+#
+# Asks the RELAY via the buzz CLI rather than querying Postgres directly. The psql version reported a
+# false NEGATIVE on any machine without a postgres client installed: `psql` not found → empty output →
+# `grep -q 1` fails → doctor printed "NOT in #<channel> — cortex provision <agent>" for agents that
+# were correctly registered, sending you round a re-provision loop that could never fix it. Observed
+# live 2026-08-06: all 12 REL agents flagged while `buzz channels members` listed every one of them.
+# It also only ever worked against a LOCAL relay with dev credentials — a hosted relay has no
+# reachable Postgres — whereas the CLI works for both.
 is_channel_member() {
-  PGPASSWORD="$PG_PW" psql -h localhost -U "$PG_USER" -d "$PG_DB" -tAc \
-    "SELECT 1 FROM channel_members WHERE removed_at IS NULL AND channel_id='$1' AND encode(pubkey,'hex')='$2' LIMIT 1" \
-    2>/dev/null | grep -q 1
+  [ -f "$BUZZ_OWNER_ENV" ] || return 1
+  # shellcheck disable=SC1090
+  ( . "$BUZZ_OWNER_ENV"
+    BUZZ_RELAY_URL="${BUZZ_RELAY_HTTP:-http://localhost:3000}" BUZZ_PRIVATE_KEY="$SEC" \
+      "$(buzz_cli)" channels members --channel "$1" 2>/dev/null ) | grep -q "\"$2\""
+}
+
+# Does the RELAY agree that this agent is owned by the identity we watch from?
+#
+# The Activity panel is gated on the relay's own record, not on the agent's profile: NIP-AO says
+# "Relay MUST verify is_agent_owner(agent, owner)" before fanning out a kind:24200 telemetry frame.
+# That record (`users.agent_owner_pubkey`) is FIRST-MINT-WINS and IMMUTABLE, so a wrong value is
+# permanent for that keypair and re-attesting is a silent no-op. Surfaced here because the failure is
+# otherwise invisible: agent healthy, turn runs, reply posts, panel eternally empty, nothing logged.
+observer_owner_ok() {
+  local a="$1" pub recorded
+  [ -n "${AGENT_OWNER:-}" ] || return 0
+  [ -f "$(agent_env "$a")" ] || return 0
+  command -v docker >/dev/null 2>&1 || return 0
+  pub="$(sed -n 's/^PUB=//p' "$(agent_env "$a")" | head -1)"
+  [ -n "$pub" ] || return 0
+  recorded="$(docker exec buzz-postgres psql -U buzz -d buzz -tAc \
+    "SELECT COALESCE(encode(agent_owner_pubkey,'hex'),'') FROM users WHERE pubkey=decode('$pub','hex');" \
+    2>/dev/null | tr -d '[:space:]')" || return 0
+  if [ -z "$recorded" ]; then
+    warn "    relay owner unset — attest before first auth, else observer frames drop"
+  elif [ "$recorded" = "$AGENT_OWNER" ]; then
+    ok "    relay owner matches (observer frames deliverable)"
+  else
+    bad "    relay owner ${recorded:0:16}… != AGENT_OWNER ${AGENT_OWNER:0:16}… — PERMANENT; rotate this agent's key"
+  fi
 }
 
 doctor() {
@@ -72,9 +109,23 @@ doctor() {
 
   echo "-- infra --"
   nc -z 127.0.0.1 3000 >/dev/null 2>&1 && ok "relay :3000" || bad "relay down — cortex start-relay (or launchd)"
-  redis-cli ping >/dev/null 2>&1 && ok "redis ping" || warn "redis not answering (relay may still be starting)"
-  PGPASSWORD="$PG_PW" psql -h localhost -U "$PG_USER" -d "$PG_DB" -c 'SELECT 1' >/dev/null 2>&1 \
-    && ok "postgres query" || warn "postgres not answering"
+  # Probe the PORTS, with the client tools only as a bonus. `redis-cli`/`psql` are frequently absent
+  # on a dev machine (they are here), so the client-based checks reported "not answering" for
+  # services that were perfectly healthy — a warning that means nothing is worse than no warning,
+  # because it trains you to ignore this section.
+  if redis-cli ping >/dev/null 2>&1; then ok "redis ping"
+  elif nc -z 127.0.0.1 6379 >/dev/null 2>&1; then ok "redis :6379"
+  else bad "redis down — docker compose up -d redis (in \$BUZZ_REPO)"; fi
+  if PGPASSWORD="$PG_PW" psql -h localhost -U "$PG_USER" -d "$PG_DB" -c 'SELECT 1' >/dev/null 2>&1; then ok "postgres query"
+  elif nc -z 127.0.0.1 5432 >/dev/null 2>&1; then ok "postgres :5432"
+  else bad "postgres down — docker compose up -d postgres (in \$BUZZ_REPO)"; fi
+  # Media/object storage. The relay stores every uploaded image here (BUZZ_S3_ENDPOINT), so when it
+  # is missing, attachments fail with a bare "relay returned 500 Internal Server Error" in the client
+  # and a 5-minutely "storage sweep failed" in the relay log — with nothing pointing at the cause.
+  # It is easy to miss because the relay itself starts fine without it: chat works, uploads do not.
+  # Observed live 2026-08-10 after the stack was brought up with only postgres+redis.
+  if nc -z 127.0.0.1 9000 >/dev/null 2>&1; then ok "media storage :9000"
+  else bad "media storage down — image uploads WILL fail with a 500; docker compose up -d minio minio-init"; fi
 
   echo "-- auth / runtime --"
   case "$rt" in
@@ -106,6 +157,7 @@ doctor() {
       is_channel_member "$cid" "$PUB" && ok "    member of #$BUZZ_DEFAULT_CHANNEL_NAME" || bad "    NOT in #$BUZZ_DEFAULT_CHANNEL_NAME — cortex provision $a"
     fi
     agent_running "$a" && ok "    process running" || warn "    process down (start when ready)"
+    observer_owner_ok "$a"
   done
 
   [ "$FAIL" -eq 0 ] && { echo; echo "Doctor clean."; } || { echo; echo "Doctor FAILED ($FAIL) — fix each FAIL, then re-run cortex doctor"; }
@@ -324,6 +376,19 @@ case "$CMD" in
   stop) case "${1:-all}" in all) for a in "${STANDING[@]}"; do stop_agent "$a"; done; stop_relay ;; relay) stop_relay ;; *) stop_agent "$1" ;; esac ;;
   restart) "$LIB/factory.sh" stop "${1:-all}"; "$LIB/factory.sh" start "${1:-all}" ;;
   provision) CORTEX_INSTANCE="$INSTANCE" bash "$LIB/provision-agent.sh" "${1:?usage: cortex provision <name>}" ;;
+  # Both run in a child shell because they prompt for / handle secrets and must not inherit or leak
+  # this process's exported agent environment.
+  attest) CORTEX_INSTANCE="$INSTANCE" bash "$LIB/attest-agent.sh" "$@" ;;
+  sync-mcp-auth) CORTEX_INSTANCE="$INSTANCE" bash "$LIB/sync-mcp-auth.sh" "$@" ;;
+  # Installs the operator MCP plugin INTO the vault, where synapse-mcp discovers it by convention —
+  # so every agent briefed from that vault can see operator state without per-machine MCP config.
+  install-mcp-plugin)
+    dest="$SYNAPSE_VAULT/_meta/mcp-plugins"
+    mkdir -p "$dest"
+    cp "$LIB/../templates/mcp-plugins/cortex.mjs" "$dest/cortex.mjs"
+    echo "  installed $dest/cortex.mjs"
+    echo "  restart agents to pick it up:  cortex restart all"
+    ;;
   install-launchagents) install_launchagents ;;
   launchd-load) launchd_load; exit $FAIL ;;
   launchd-unload) launchd_unload ;;
