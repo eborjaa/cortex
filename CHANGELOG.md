@@ -68,7 +68,6 @@ All notable changes to `@eborja/cortex`.
   fix when they diverge.
 - **`doctor`: directory-freshness check per agent**, so this class of staleness stops being invisible.
 
-### Fixed
 - **A channel name containing a space no longer corrupts the directory record.** The record builder
   split names on all whitespace, so a channel called `jira management` became two entries — which
   desynchronizes `channels[]` from `channel_ids[]`. Desktop pairs those two arrays *positionally*, so
