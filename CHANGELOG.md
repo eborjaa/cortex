@@ -5,6 +5,27 @@ All notable changes to `@eborja/cortex`.
 ## Unreleased
 
 ### Added
+- **Turn budget is configurable per agent: `AGENT_<name>_MAX_TURN` / `AGENT_<name>_IDLE_TIMEOUT`**
+  (globals `BUZZ_ACP_MAX_TURN_DURATION` / `BUZZ_ACP_IDLE_TIMEOUT` still apply as defaults). Needed for
+  long workflows, and there are **two** timers where the lower always wins:
+
+  * `MAX_TURN` — absolute wall-clock cap per turn.
+  * `IDLE_TIMEOUT` — max seconds of **silence**, reset by any agent stdout. This is the trap: a long
+    step that prints nothing (a test suite, a build, a sleep) is indistinguishable from a hung agent,
+    so raising only the wall-clock cap changes nothing. Observed live 2026-08-11 —
+    `WARN idle timeout (300s) — no agent activity` / `cancelling session …`, and separately
+    `hard turn timeout exceeded`, on real workflow runs.
+
+  `doctor` now prints `turn=<idle>s/<max>s` per agent and **warns when idle ≥ max**, which silently
+  removes hang detection and leaves the wall-clock cap as the only backstop.
+
+- **`cortex restart --idle [<name>...]` — roll out a config change without killing live work.**
+  Config applies at process start, so every change needs a restart; a blanket `cortex restart all`
+  destroys whatever turns are in flight, and the failure is invisible — the channel just never gets an
+  answer. `--idle` restarts only agents that are not mid-turn and names the ones it skipped, with the
+  command to finish the job later. Busy-ness is read from the log (activity after the last
+  `turn complete`), since a process can be up while a turn is running.
+
 - **`AGENT_<name>_WORKERS` — parallel workers for ONE agent identity** (`buzz-acp --agents`, 1..32).
   Same pubkey, profile and Activity panel; able to hold turns in N channels at once. With the default
   1, a mention in channel B reacts 👀 and then waits for channel A's turn — up to

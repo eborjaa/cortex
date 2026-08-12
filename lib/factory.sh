@@ -23,6 +23,29 @@ FAIL=0
 # the Buzz CLI needs them, not just this file.
 runtime()    { echo "$BUZZ_SYNAPSE_AGENT_COMMAND"; }
 
+# Is this agent MID-TURN right now?
+#
+# Distinct from agent_running(): a process can be up while a turn is in flight, and restarting then
+# KILLS that turn's work with no way to resume it. `restart --idle` uses this to skip busy agents.
+#
+# Detected from the log rather than a status API: buzz-acp logs `turn complete` at the end of every
+# turn, so activity recorded AFTER the last `turn complete` means a turn is still running.
+agent_busy() {
+  # Two statements, not one: `local a="$1" log="…$a…"` declares BOTH names before assigning, so under
+  # `set -u` the reference to $a in log's value is an unbound-variable error.
+  local a="$1"
+  local log="$INSTANCE/logs/$a.log" last_complete last_activity
+  [ -f "$log" ] || return 1
+  # Match on PLAIN text only. buzz-acp writes ANSI colour codes, so a pattern containing the target
+  # prefix ("acp::tool: tool_call") never matches — the escapes sit between the module name and the
+  # colon. Caught by testing the detector against a genuinely busy agent, where it reported "idle".
+  last_complete="$(grep -n "turn complete" "$log" 2>/dev/null | tail -1 | cut -d: -f1)"
+  last_activity="$(grep -nE "tool_call|acp::stream" "$log" 2>/dev/null | tail -1 | cut -d: -f1)"
+  [ -n "$last_activity" ] || return 1
+  [ -z "$last_complete" ] && return 0
+  [ "$last_activity" -gt "$last_complete" ]
+}
+
 agent_running() {
   local a="$1"
   [ -f "$INSTANCE/logs/$a.pid" ] && kill -0 "$(cat "$INSTANCE/logs/$a.pid")" 2>/dev/null && return 0
@@ -195,7 +218,13 @@ doctor() {
   else bad "#$BUZZ_DEFAULT_CHANNEL_NAME missing — create it in Buzz Desktop"; fi
 
   for a in "${STANDING[@]}"; do
-    echo "  [$a]  hub=$(agent_hub "$a") surface=$(agent_surface "$a") model=$(agent_model "$a") workers=$(agent_workers "$a")"
+    _idle="$(agent_idle_timeout "$a")"; _maxt="$(agent_max_turn "$a")"
+    echo "  [$a]  hub=$(agent_hub "$a") surface=$(agent_surface "$a") model=$(agent_model "$a") workers=$(agent_workers "$a") turn=${_idle}s/${_maxt}s"
+    # IDLE >= MAX_TURN means the idle timer can never fire first, so hang detection is gone and the
+    # wall-clock cap is the only backstop. Almost always a mistake when raising the budget.
+    if [ "$_idle" -ge "$_maxt" ] 2>/dev/null; then
+      warn "    idle timeout (${_idle}s) >= max turn (${_maxt}s) — no hang detection; keep idle below max"
+    fi
     if [ "$PROMPT_SOURCE" = "render" ]; then
       SYNAPSE_VAULT="$SYNAPSE_VAULT" "$(synapse_bin)" render "agent-$a" "$(agent_hub "$a")" --profile "$(agent_profile "$a")" >/dev/null 2>&1 \
         && ok "    prompt renders" || bad "    render fails for agent-$a / $(agent_hub "$a")"
@@ -428,7 +457,30 @@ case "$CMD" in
   start) case "${1:-all}" in all) agents_sync; start_relay; for a in "${STANDING[@]}"; do start_agent "$a"; done ;; relay) start_relay ;; *) start_agent "$1" ;; esac ;;
   start-relay) start_relay ;;
   stop) case "${1:-all}" in all) for a in "${STANDING[@]}"; do stop_agent "$a"; done; stop_relay ;; relay) stop_relay ;; *) stop_agent "$1" ;; esac ;;
-  restart) "$LIB/factory.sh" stop "${1:-all}"; "$LIB/factory.sh" start "${1:-all}" ;;
+  # `restart --idle` cycles only agents that are NOT mid-turn, and names the ones it skipped.
+  # Config changes (turn budget, workers, model) apply at process START, so rolling one out means
+  # restarting — and a blanket `restart all` destroys whatever turns are in flight, silently: the
+  # channel simply never gets its answer. This makes "roll out the change without losing live work"
+  # one command instead of hand-picking idle agents out of the logs.
+  # Accepts an explicit list too: `restart --idle a b c`.
+  restart)
+    if [ "${1:-}" = "--idle" ]; then
+      shift
+      _targets=("$@"); [ "${#_targets[@]}" -gt 0 ] || _targets=("${STANDING[@]}")
+      _skipped=()
+      for _a in "${_targets[@]}"; do
+        if agent_busy "$_a"; then _skipped+=("$_a"); continue; fi
+        "$LIB/factory.sh" stop "$_a" >/dev/null 2>&1
+        "$LIB/factory.sh" start "$_a" >/dev/null 2>&1 && ok "restarted $_a" || bad "restart $_a"
+      done
+      if [ "${#_skipped[@]}" -gt 0 ]; then
+        echo
+        warn "mid-turn, left running: ${_skipped[*]}"
+        echo "       re-run when they finish:  cortex restart ${_skipped[*]}"
+      fi
+      exit $FAIL
+    fi
+    "$LIB/factory.sh" stop "${1:-all}"; "$LIB/factory.sh" start "${1:-all}" ;;
   provision) CORTEX_INSTANCE="$INSTANCE" bash "$LIB/provision-agent.sh" "${1:?usage: cortex provision <name>}" ;;
   # Both run in a child shell because they prompt for / handle secrets and must not inherit or leak
   # this process's exported agent environment.

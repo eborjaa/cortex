@@ -144,6 +144,26 @@ agent_mcp_env()     { _agent_get "$1" MCP_ENV; }
 # read-only; prefer per-worker checkouts before going high.
 agent_workers()     { local d; d="$(_agent_get "$1" WORKERS)"; echo "${d:-${BUZZ_ACP_AGENTS:-1}}"; }
 
+# ── Turn budget ─────────────────────────────────────────────────────────────────
+# TWO independent timers, and the LOWER one always wins — so raising only the wall-clock cap
+# accomplishes nothing:
+#
+#   MAX_TURN — absolute wall-clock cap per turn ("how long may a turn take").
+#   IDLE     — max seconds of SILENCE, reset by any agent stdout. This is the one that surprises
+#              people: a long step that prints nothing (a test suite, a build, a sleep) looks
+#              identical to a hung agent, so a low idle timeout kills healthy long work no matter
+#              how large MAX_TURN is. Seen live 2026-08-11 on a real workflow:
+#                WARN idle timeout (300s) — no agent activity
+#                WARN cancelling session 33f0378c…
+#
+# Keep IDLE strictly BELOW MAX_TURN: if they are equal the idle timer can never fire first and hang
+# detection is gone entirely, leaving the wall-clock cap as the only backstop.
+#
+# A long turn OCCUPIES A WORKER for its whole duration, so this interacts with AGENT_<name>_WORKERS —
+# N long turns fill the pool and further mentions queue (👀 then silence) until one frees up.
+agent_idle_timeout() { local d; d="$(_agent_get "$1" IDLE_TIMEOUT)"; echo "${d:-${BUZZ_ACP_IDLE_TIMEOUT:-300}}"; }
+agent_max_turn()     { local d; d="$(_agent_get "$1" MAX_TURN)";     echo "${d:-${BUZZ_ACP_MAX_TURN_DURATION:-600}}"; }
+
 # The consumer vault's installed CLIs (the engine + MCP server ship with @eborja/synapse).
 synapse_bin()     { echo "$SYNAPSE_VAULT/node_modules/.bin/synapse"; }
 synapse_mcp_bin() { echo "$SYNAPSE_VAULT/node_modules/.bin/synapse-mcp"; }

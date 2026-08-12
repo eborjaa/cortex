@@ -34,6 +34,8 @@ PROFILE="$(agent_profile "$NAME")"
 RUNTIME="$(agent_runtime_for "$NAME")"
 MODEL_ID="$(agent_model "$NAME")"
 WORKERS="$(agent_workers "$NAME")"
+IDLE_TIMEOUT="$(agent_idle_timeout "$NAME")"
+MAX_TURN="$(agent_max_turn "$NAME")"
 
 mkdir -p "$INSTANCE/logs" "$INSTANCE/.cortex" "$INSTANCE/prompts"
 echo "starting $NAME $(date -u +%Y-%m-%dT%H:%M:%SZ) · runtime=$RUNTIME surface=$SURFACE hub=$HUB" >>"$INSTANCE/logs/$NAME.log"
@@ -180,7 +182,7 @@ exec env \
   --mcp-command "$MCP" \
   --permission-mode "${BUZZ_ACP_PERMISSION_MODE:-accept-edits}" \
   --respond-to anyone \
-  --idle-timeout "${BUZZ_ACP_IDLE_TIMEOUT:-300}" \
-  --max-turn-duration "${BUZZ_ACP_MAX_TURN_DURATION:-600}" \
+  --idle-timeout "$IDLE_TIMEOUT" \
+  --max-turn-duration "$MAX_TURN" \
   ${OPT[@]+"${OPT[@]}"} \
   >>"$INSTANCE/logs/$NAME.log" 2>&1

@@ -53,3 +53,15 @@ RELAY_OBSERVER="${RELAY_OBSERVER:-1}"      # publish ACP observer frames → the
 #   AGENT_<name>_RUNTIME  override the ACP runtime for one agent
 AGENT_oracle_HUB="hub-projects";  AGENT_oracle_PROFILE="standard";  AGENT_oracle_SURFACE="standard"
 AGENT_curator_HUB="hub-synapse";  AGENT_curator_PROFILE="standard"; AGENT_curator_SURFACE="full"
+
+# ── Turn budget ─────────────────────────────────────────────────────────────────
+# TWO timers, and the LOWER one wins. MAX_TURN is the wall-clock cap; IDLE_TIMEOUT is max seconds of
+# SILENCE (reset by any agent stdout) — a long step that prints nothing looks exactly like a hang, so
+# a low idle timeout kills healthy long work no matter how large MAX_TURN is. Keep IDLE below MAX.
+# Defaults: 300 / 600. For hour-long workflows:
+#BUZZ_ACP_MAX_TURN_DURATION="3600"      # 1 hour
+#BUZZ_ACP_IDLE_TIMEOUT="1800"           # 30 min of silence
+# Per agent (wins over the global):
+#AGENT_<name>_MAX_TURN="3600"
+#AGENT_<name>_IDLE_TIMEOUT="1800"
+# A long turn OCCUPIES A WORKER for its duration — see AGENT_<name>_WORKERS.

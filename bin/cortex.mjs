@@ -48,6 +48,8 @@ usage: cortex <command> [args]
   start [all|relay|<name>]      launch relay + agents
   stop  [all|relay|<name>]
   restart [all|<name>]
+  restart --idle [<name>...]    restart only agents that are NOT mid-turn (config changes apply at
+                                process start; a blanket restart silently kills in-flight turns)
   install-launchagents          write LaunchAgent plists for this instance
   launchd-load | launchd-unload
   test-mcp                      drive the vault's synapse-mcp, list tools
