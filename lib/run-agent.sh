@@ -33,6 +33,9 @@ HUB="$(agent_hub "$NAME")"
 PROFILE="$(agent_profile "$NAME")"
 RUNTIME="$(agent_runtime_for "$NAME")"
 MODEL_ID="$(agent_model "$NAME")"
+WORKERS="$(agent_workers "$NAME")"
+IDLE_TIMEOUT="$(agent_idle_timeout "$NAME")"
+MAX_TURN="$(agent_max_turn "$NAME")"
 
 mkdir -p "$INSTANCE/logs" "$INSTANCE/.cortex" "$INSTANCE/prompts"
 echo "starting $NAME $(date -u +%Y-%m-%dT%H:%M:%SZ) · runtime=$RUNTIME surface=$SURFACE hub=$HUB" >>"$INSTANCE/logs/$NAME.log"
@@ -55,11 +58,25 @@ export BUZZ_ACP_SYSTEM_PROMPT_FILE="$SYS"
 
 # ── per-agent MCP wrapper: pins the vault + THIS agent's surface + plugin discovery ──
 MCP="$INSTANCE/.cortex/mcp-${NAME}.sh"
+MCP_ENV="$(agent_mcp_env "$NAME")"
 {
   echo '#!/usr/bin/env bash'
   echo "export SYNAPSE_VAULT=\"$SYNAPSE_VAULT\""
   echo "export SYNAPSE_MCP_SURFACE=\"$SURFACE\""
+  # Which instance this agent belongs to — the operator MCP plugin (templates/mcp-plugins/cortex.mjs)
+  # needs it to answer "is this agent actually running / attested / authed". Harmless when unused.
+  echo "export CORTEX_INSTANCE=\"$INSTANCE\""
   [ -n "${SYNAPSE_MCP_PLUGINS:-}" ] && echo "export SYNAPSE_MCP_PLUGINS=\"$SYNAPSE_MCP_PLUGINS\""
+  # Vault secrets (Zephyr token, …) so a vault MCP plugin can reach its upstream API. The wrapper is
+  # exec'd by the ACP runtime, which does NOT forward our environment, so re-source rather than assume.
+  [ -f "$SYNAPSE_VAULT/.env" ] && echo "set -a; . \"$SYNAPSE_VAULT/.env\"; set +a"
+  [ -f "$INSTANCE/.env" ]      && echo "set -a; . \"$INSTANCE/.env\"; set +a"
+  # Per-agent plugin config (AGENT_<name>_MCP_ENV="K=V;K2=V2") — narrows a plugin for THIS agent only.
+  if [ -n "$MCP_ENV" ]; then
+    printf '%s\n' "$MCP_ENV" | tr ';' '\n' | while IFS= read -r kv; do
+      [ -n "$kv" ] && echo "export ${kv}"
+    done
+  fi
   echo "exec \"$(synapse_mcp_bin)\" \"\$@\""
 } >"$MCP"
 chmod +x "$MCP"
@@ -78,7 +95,19 @@ chmod +x "$MCP"
 # MUST keep the reply path working (e.g. a first-class Buzz reply tool) — never deny the shell.
 AGDIR="$INSTANCE/.cortex/agents/$NAME"
 mkdir -p "$AGDIR"
-rm -f "$AGDIR/.claude/settings.json"   # clear any deny-list a prior 0.2.1 build wrote (would block replies)
+# Clear only a settings.json that carries a DENY-LIST (what the 0.2.1 build wrote — it severed replies).
+# A settings.json without one is intentional operator config and must survive: claude-agent-acp reads
+# the user's ~/.claude/settings.json, and its resolvePermissionMode() accepts only
+# default|acceptEdits|dontAsk|plan|bypassPermissions. A user whose GLOBAL Claude Code config selects a
+# newer mode (e.g. "auto") makes every agent here die at session/new with
+#   -32603 Internal error · "Invalid permissions.defaultMode: auto."
+# buzz-acp then requeues with backoff, so the symptom is an agent that is "up", receives the mention,
+# and silently never replies (verified live 2026-08-06, all 12 REL agents). A project-scoped
+# settings.json pins a mode the adapter understands without touching the user's global config —
+# blowing it away every launch would resurrect the bug on every restart.
+if [ -f "$AGDIR/.claude/settings.json" ] && grep -q '"deny"' "$AGDIR/.claude/settings.json" 2>/dev/null; then
+  rm -f "$AGDIR/.claude/settings.json"
+fi
 cd "$AGDIR"
 
 # cursor-agent and opencode both need the `acp` subcommand; claude-agent-acp takes none.
@@ -91,6 +120,9 @@ esac
 # parsed as a positional). MODEL_ID=default means "let the runtime choose" — pass no --model at all.
 OPT=()
 [ -n "$MODEL_ID" ] && [ "$MODEL_ID" != "default" ] && OPT+=(--model "$MODEL_ID")
+# Only pass --agents when it differs from buzz-acp's own default, so the common case keeps the
+# adapter's default rather than this file restating it.
+[ "$WORKERS" != "1" ] && OPT+=(--agents "$WORKERS")
 [ -n "${AGENT_OWNER:-}" ] && OPT+=(--agent-owner "$AGENT_OWNER")
 # The owner's NIP-OA attestation (minted at provision time, stored in this agent's env file) is read
 # by buzz-acp from the ENVIRONMENT — it has no CLI flag — and exported below, not appended here.
@@ -115,6 +147,27 @@ fi
 # Observed live 2026-08-04: oracle ran a full 2-minute investigation and posted nothing.
 # Exporting both here makes `buzz messages send` work with zero setup. No new exposure: the agent
 # already reads this key from its own env file, and this is its own identity, not the owner's.
+#
+# --permission-mode is overridable and defaults to a value EVERY buzz-acp build accepts.
+# `bypass-permissions` was hardcoded here by the #8 revert, but older builds reject it outright —
+#   error: invalid value 'bypass-permissions' for '--permission-mode'
+#   [possible values: default, accept-edits, dont-ask, plan]
+# — and buzz-acp exits before connecting, so the agent never starts and says nothing in chat. Killed
+# qa-lead on restart 2026-08-11. Set BUZZ_ACP_PERMISSION_MODE=bypass-permissions on a build that
+# supports it; the default stays compatible.
+#
+# Two URLs, two schemes, one source of truth. The agent's TOOLS shell out to `buzz messages send`,
+# which wants HTTP; buzz-acp's own relay socket is a WEBSOCKET and rejects an http:// URL outright:
+#   WARN buzz_acp::relay: initial relay connect failed with terminal error:
+#   WebSocket error: URL error: URL scheme not supported
+# So --relay-url coerces the scheme to ws:// while BUZZ_RELAY_URL stays http:// for the tools. The #8
+# revert dropped that coercion and passed http:// straight through, which starts the agent pool
+# successfully and THEN dies on connect — the agent looks like it booted and is simply absent. Killed
+# qa-lead on restart 2026-08-11, same revert as the permission-mode breakage above.
+#
+# NOTE: never put a `#` comment inside the backslash-continued arg list below — line continuation
+# joins the lines first, so the comment text becomes literal ARGUMENTS. That produced a start that
+# logged nothing at all (also 2026-08-11). Comments belong here, above `exec`.
 exec env \
   RUST_LOG=info \
   PATH="$HOME/.local/bin:$PATH" \
@@ -129,7 +182,7 @@ exec env \
   --mcp-command "$MCP" \
   --permission-mode bypass-permissions \
   --respond-to anyone \
-  --idle-timeout "${BUZZ_ACP_IDLE_TIMEOUT:-300}" \
-  --max-turn-duration "${BUZZ_ACP_MAX_TURN_DURATION:-600}" \
+  --idle-timeout "$IDLE_TIMEOUT" \
+  --max-turn-duration "$MAX_TURN" \
   ${OPT[@]+"${OPT[@]}"} \
   >>"$INSTANCE/logs/$NAME.log" 2>&1

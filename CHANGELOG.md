@@ -2,9 +2,113 @@
 
 All notable changes to `@eborja/cortex`.
 
-## Unreleased
+## 0.5.0 — 2026-08-12
 
 ### Added
+- **Turn budget is configurable per agent: `AGENT_<name>_MAX_TURN` / `AGENT_<name>_IDLE_TIMEOUT`**
+  (globals `BUZZ_ACP_MAX_TURN_DURATION` / `BUZZ_ACP_IDLE_TIMEOUT` still apply as defaults). Needed for
+  long workflows, and there are **two** timers where the lower always wins:
+
+  * `MAX_TURN` — absolute wall-clock cap per turn.
+  * `IDLE_TIMEOUT` — max seconds of **silence**, reset by any agent stdout. This is the trap: a long
+    step that prints nothing (a test suite, a build, a sleep) is indistinguishable from a hung agent,
+    so raising only the wall-clock cap changes nothing. Observed live 2026-08-11 —
+    `WARN idle timeout (300s) — no agent activity` / `cancelling session …`, and separately
+    `hard turn timeout exceeded`, on real workflow runs.
+
+  `doctor` now prints `turn=<idle>s/<max>s` per agent and **warns when idle ≥ max**, which silently
+  removes hang detection and leaves the wall-clock cap as the only backstop.
+
+- **`cortex restart --idle [<name>...]` — roll out a config change without killing live work.**
+  Config applies at process start, so every change needs a restart; a blanket `cortex restart all`
+  destroys whatever turns are in flight, and the failure is invisible — the channel just never gets an
+  answer. `--idle` restarts only agents that are not mid-turn and names the ones it skipped, with the
+  command to finish the job later. Busy-ness is read from the log (activity after the last
+  `turn complete`), since a process can be up while a turn is running.
+
+- **`AGENT_<name>_WORKERS` — parallel workers for ONE agent identity** (`buzz-acp --agents`, 1..32).
+  Same pubkey, profile and Activity panel; able to hold turns in N channels at once. With the default
+  1, a mention in channel B reacts 👀 and then waits for channel A's turn — up to
+  `--max-turn-duration` of silence, which reads as the agent ignoring you rather than queueing
+  (buzz-acp requeues; nothing is dropped). Cross-channel mentions never *interrupt*: the mid-turn gate
+  is scoped to the incoming event's own channel.
+
+  Verified live 2026-08-11 with two 25-second tasks in different channels — both `sleep 25` calls
+  started 0.7s apart, total wall clock 45s where a serialized run needs ~70s.
+
+  **Cost:** each worker is a full runtime subprocess plus its own MCP server, and they share ONE
+  working directory and git identity, so two turns can write the same checkout concurrently. Raise it
+  for agents whose parallel work is mostly read-only; prefer per-worker checkouts before going high.
+  `doctor` prints each agent's worker count.
+
+### Fixed
+- **Recorded why `--permission-mode` and `--relay-url` must keep their overridable forms.** The #8
+  revert hardcoded `--permission-mode bypass-permissions` (older buzz-acp builds reject the value and
+  exit before connecting) and dropped the `ws://` coercion on `--relay-url` (the agent pool starts,
+  then dies with `WebSocket error: URL scheme not supported`). Both take an agent down while it says
+  nothing in chat; both killed qa-lead on 2026-08-11. The failure modes are now documented inline so a
+  future revert cannot quietly reintroduce them.
+- **Never put a `#` comment inside the backslash-continued arg list** — line continuation joins the
+  lines first, so the comment becomes literal arguments. Produced a start that logged nothing at all.
+
+- **`cortex sync-directory [<name>...]` — refresh kind:10100 channel lists from live membership.**
+  `channel_ids` in the directory record is a snapshot taken at publish time and **nothing keeps it
+  fresh**: buzz-acp never writes kind:10100, the relay reads only `channel_add_policy` from it, and
+  Desktop treats the record as "near-static … this poll is also the ONLY refresh path". So adding an
+  agent to a channel from the UI leaves the record stale, which breaks three client behaviours at
+  once — the agent's profile channel list/count, the Activity panel's channel resolution
+  (`agentChannelIds` comes from this record), and mention-autocomplete eligibility.
+
+  The confusing part: **the agent itself is fine.** buzz-acp joins the new channel live off a
+  membership notification, so the symptom reads as "the agent doesn't know it's in the channel" when
+  the agent knows perfectly well and the *directory* is what's wrong. Hit live 2026-08-11.
+
+  Needs no human secret — the record is signed by the agent's own key — so unlike `attest` this runs
+  unattended. `doctor` now compares live membership against the published record and points at the
+  fix when they diverge.
+- **`doctor`: directory-freshness check per agent**, so this class of staleness stops being invisible.
+
+- **A channel name containing a space no longer corrupts the directory record.** The record builder
+  split names on all whitespace, so a channel called `jira management` became two entries — which
+  desynchronizes `channels[]` from `channel_ids[]`. Desktop pairs those two arrays *positionally*, so
+  the misalignment is worse than a stale record: name *i* stops describing id *i*, and the Activity
+  panel would open the wrong channel. Now splits on newlines only, and asserts the two arrays are the
+  same length before publishing.
+
+### Changed
+- The kind:10100 publisher moved to `lib/directory-record.sh`, shared by `attest` and
+  `sync-directory`. A partial or short record silently un-mentions an agent, so there must be exactly
+  one implementation for it to drift out of.
+
+## 0.4.0 — 2026-08-11
+
+### Added
+- **`cortex attest [<name>...]` — owner attestation + the relay directory record.** Provisioning an
+  agent is not the same as having a working one, and this step cannot live in `provision`: minting an
+  attestation requires the OWNER's secret key, which an operator must never hold. Skipping it is
+  invisible — the agent provisions, replies to mentions, and looks completely healthy, while
+  `users.agent_owner_pubkey` stays NULL (so the relay drops every kind:24200 observer frame and the
+  client's Activity panel is permanently empty) and no kind:10100 record exists (so the agent is
+  missing from @mention autocomplete). Nothing logs either omission. Hit live 2026-08-10 on the 13th
+  agent of an otherwise healthy instance.
+  Guards the irreversible case: `users.agent_owner_pubkey` is **first-mint-wins and immutable**
+  (buzz-db updates it only `WHERE agent_owner_pubkey IS NULL`), so attesting to the wrong identity is
+  permanent for that keypair and re-attesting is a silent no-op. The command derives the pubkey from
+  the pasted secret and refuses unless it matches `AGENT_OWNER`.
+- **`cortex sync-mcp-auth [<server>...]` — MCP OAuth for every agent.** `cursor-agent` stores MCP auth
+  **per project**, keyed by a slug of the CWD. Each agent runs from its own dir, so a human's
+  `cursor-agent mcp login <server>` authenticates their shell and **not one agent** — every agent then
+  reports `requires_authentication` for a server that is demonstrably logged in, which reads as a
+  broken login rather than a scoping rule. The stored bundle is self-contained, so one consent covers
+  every agent.
+- **`cortex install-mcp-plugin` — an operator MCP surface inside the vault.** Installs
+  `cortex_list_agents`, `cortex_agent_readiness`, `cortex_doctor`, `cortex_start_agent`, and
+  `cortex_sync_mcp_auth` into `<vault>/_meta/mcp-plugins/`, where synapse-mcp discovers them by
+  convention. A principal agent that can author an agent note but cannot see operator state will
+  report success after step 1 of 4. Attestation is deliberately **not** exposed — it needs the owner's
+  secret — but `cortex_agent_readiness` reports whether it has been done.
+- **`doctor` now reports per-agent MCP auth**, alongside the attestation check it already ran.
+  Completes the set of post-provision gaps that fail silently.
 - **`opencode` (sst/opencode) as an ACP runtime.** `opencode acp` is the official
   Agent Client Protocol server subcommand — same hook the other runtimes expose, same
   JSON-RPC over stdio. Set `BUZZ_SYNAPSE_AGENT_COMMAND=opencode` (global default) or
@@ -12,6 +116,23 @@ All notable changes to `@eborja/cortex`.
   configured with in `~/.config/opencode/opencode.json` (Anthropic, OpenAI, Ollama,
   custom endpoints, etc.) — no provider-specific code in Cortex. `doctor` probes
   `opencode acp --help` and `opencode --version`. Requires opencode ≥ 1.1.
+
+### Fixed
+- **Corrected two claims in `provision-agent.sh` that were wrong and actively misleading.** It said
+  (a) attesting costs you the mention picker, so default it OFF, and (b) "observer frames do NOT need
+  this — cortex passes `--agent-owner`". Following that guidance is how you get an agent that chats
+  normally with a permanently empty Activity panel. (a) was a **client** bug (block/buzz#4489), not a
+  property of attestation. (b) is false: `--agent-owner` sets only the agent's LOCAL belief about its
+  owner — enough to gate who it replies to — and mints no attestation, so the relay's record (a
+  different source of truth) stays NULL. Attestation is **required** for an observable agent, not a
+  cosmetic label.
+
+### Changed
+- `agent_env()` / `buzz_cli()` moved to `config.sh` — every command that touches a keyfile or the Buzz
+  CLI needs them, not just `factory.sh`. `run-agent.sh` exports `CORTEX_INSTANCE` into the per-agent
+  MCP wrapper so the operator plugin can resolve its instance.
+- `peerDependencies` on `@eborja/synapse` bumped to `^0.8.0` — the documented add-an-agent flow uses
+  `synapse new agent --addressable`, which does not exist before 0.8.0.
 
 ## 0.3.2 — 2026-08-04
 
