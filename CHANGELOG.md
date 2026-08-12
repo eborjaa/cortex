@@ -2,7 +2,7 @@
 
 All notable changes to `@eborja/cortex`.
 
-## Unreleased
+## 0.5.0 — 2026-08-12
 
 ### Added
 - **Turn budget is configurable per agent: `AGENT_<name>_MAX_TURN` / `AGENT_<name>_IDLE_TIMEOUT`**
