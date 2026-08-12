@@ -5,6 +5,31 @@ All notable changes to `@eborja/cortex`.
 ## Unreleased
 
 ### Added
+- **`AGENT_<name>_WORKERS` — parallel workers for ONE agent identity** (`buzz-acp --agents`, 1..32).
+  Same pubkey, profile and Activity panel; able to hold turns in N channels at once. With the default
+  1, a mention in channel B reacts 👀 and then waits for channel A's turn — up to
+  `--max-turn-duration` of silence, which reads as the agent ignoring you rather than queueing
+  (buzz-acp requeues; nothing is dropped). Cross-channel mentions never *interrupt*: the mid-turn gate
+  is scoped to the incoming event's own channel.
+
+  Verified live 2026-08-11 with two 25-second tasks in different channels — both `sleep 25` calls
+  started 0.7s apart, total wall clock 45s where a serialized run needs ~70s.
+
+  **Cost:** each worker is a full runtime subprocess plus its own MCP server, and they share ONE
+  working directory and git identity, so two turns can write the same checkout concurrently. Raise it
+  for agents whose parallel work is mostly read-only; prefer per-worker checkouts before going high.
+  `doctor` prints each agent's worker count.
+
+### Fixed
+- **Recorded why `--permission-mode` and `--relay-url` must keep their overridable forms.** The #8
+  revert hardcoded `--permission-mode bypass-permissions` (older buzz-acp builds reject the value and
+  exit before connecting) and dropped the `ws://` coercion on `--relay-url` (the agent pool starts,
+  then dies with `WebSocket error: URL scheme not supported`). Both take an agent down while it says
+  nothing in chat; both killed qa-lead on 2026-08-11. The failure modes are now documented inline so a
+  future revert cannot quietly reintroduce them.
+- **Never put a `#` comment inside the backslash-continued arg list** — line continuation joins the
+  lines first, so the comment becomes literal arguments. Produced a start that logged nothing at all.
+
 - **`cortex sync-directory [<name>...]` — refresh kind:10100 channel lists from live membership.**
   `channel_ids` in the directory record is a snapshot taken at publish time and **nothing keeps it
   fresh**: buzz-acp never writes kind:10100, the relay reads only `channel_add_policy` from it, and

@@ -131,6 +131,18 @@ agent_model()       { local d; d="$(_agent_get "$1" MODEL)";   echo "${d:-$MODEL
 # env lets the instance narrow a plugin without demoting the agent off `full`. Example:
 #   AGENT_qa_lead_MCP_ENV="ZEPHYR_MCP_READONLY=1"
 agent_mcp_env()     { _agent_get "$1" MCP_ENV; }
+# Parallel worker subprocesses for ONE agent identity (buzz-acp --agents, 1..32).
+#
+# One identity, N workers: the agent keeps a single pubkey, profile and Activity panel, but can hold
+# turns in N channels at once. With the default 1, a mention in channel B waits for channel A's turn
+# to finish — up to --max-turn-duration of silence after the 👀 reaction, which reads as the agent
+# ignoring you rather than queueing (buzz-acp requeues, it does not drop).
+#
+# COST: each worker is a full runtime subprocess plus its own MCP server, and they all share ONE
+# working directory and git identity. Two workers doing git in the same checkout is a real hazard —
+# see the vault's rule-one-writer-per-worktree. Raise this for agents whose parallel work is mostly
+# read-only; prefer per-worker checkouts before going high.
+agent_workers()     { local d; d="$(_agent_get "$1" WORKERS)"; echo "${d:-${BUZZ_ACP_AGENTS:-1}}"; }
 
 # The consumer vault's installed CLIs (the engine + MCP server ship with @eborja/synapse).
 synapse_bin()     { echo "$SYNAPSE_VAULT/node_modules/.bin/synapse"; }

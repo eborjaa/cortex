@@ -33,6 +33,7 @@ HUB="$(agent_hub "$NAME")"
 PROFILE="$(agent_profile "$NAME")"
 RUNTIME="$(agent_runtime_for "$NAME")"
 MODEL_ID="$(agent_model "$NAME")"
+WORKERS="$(agent_workers "$NAME")"
 
 mkdir -p "$INSTANCE/logs" "$INSTANCE/.cortex" "$INSTANCE/prompts"
 echo "starting $NAME $(date -u +%Y-%m-%dT%H:%M:%SZ) · runtime=$RUNTIME surface=$SURFACE hub=$HUB" >>"$INSTANCE/logs/$NAME.log"
@@ -117,6 +118,9 @@ esac
 # parsed as a positional). MODEL_ID=default means "let the runtime choose" — pass no --model at all.
 OPT=()
 [ -n "$MODEL_ID" ] && [ "$MODEL_ID" != "default" ] && OPT+=(--model "$MODEL_ID")
+# Only pass --agents when it differs from buzz-acp's own default, so the common case keeps the
+# adapter's default rather than this file restating it.
+[ "$WORKERS" != "1" ] && OPT+=(--agents "$WORKERS")
 [ -n "${AGENT_OWNER:-}" ] && OPT+=(--agent-owner "$AGENT_OWNER")
 # The owner's NIP-OA attestation (minted at provision time, stored in this agent's env file) is read
 # by buzz-acp from the ENVIRONMENT — it has no CLI flag — and exported below, not appended here.
@@ -141,6 +145,27 @@ fi
 # Observed live 2026-08-04: oracle ran a full 2-minute investigation and posted nothing.
 # Exporting both here makes `buzz messages send` work with zero setup. No new exposure: the agent
 # already reads this key from its own env file, and this is its own identity, not the owner's.
+#
+# --permission-mode is overridable and defaults to a value EVERY buzz-acp build accepts.
+# `bypass-permissions` was hardcoded here by the #8 revert, but older builds reject it outright —
+#   error: invalid value 'bypass-permissions' for '--permission-mode'
+#   [possible values: default, accept-edits, dont-ask, plan]
+# — and buzz-acp exits before connecting, so the agent never starts and says nothing in chat. Killed
+# qa-lead on restart 2026-08-11. Set BUZZ_ACP_PERMISSION_MODE=bypass-permissions on a build that
+# supports it; the default stays compatible.
+#
+# Two URLs, two schemes, one source of truth. The agent's TOOLS shell out to `buzz messages send`,
+# which wants HTTP; buzz-acp's own relay socket is a WEBSOCKET and rejects an http:// URL outright:
+#   WARN buzz_acp::relay: initial relay connect failed with terminal error:
+#   WebSocket error: URL error: URL scheme not supported
+# So --relay-url coerces the scheme to ws:// while BUZZ_RELAY_URL stays http:// for the tools. The #8
+# revert dropped that coercion and passed http:// straight through, which starts the agent pool
+# successfully and THEN dies on connect — the agent looks like it booted and is simply absent. Killed
+# qa-lead on restart 2026-08-11, same revert as the permission-mode breakage above.
+#
+# NOTE: never put a `#` comment inside the backslash-continued arg list below — line continuation
+# joins the lines first, so the comment text becomes literal ARGUMENTS. That produced a start that
+# logged nothing at all (also 2026-08-11). Comments belong here, above `exec`.
 exec env \
   RUST_LOG=info \
   PATH="$HOME/.local/bin:$PATH" \
