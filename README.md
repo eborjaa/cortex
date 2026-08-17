@@ -139,10 +139,16 @@ door is read-only because the tools aren't registered, not because a prompt asks
 
 ```ini
 # factory.config
-STANDING=(oracle curator)
-AGENT_oracle_HUB="hub-projects";  AGENT_oracle_SURFACE="standard"   # read-only
-AGENT_curator_HUB="hub-synapse";  AGENT_curator_SURFACE="full"      # authoring
+STANDING=(oracle curator lead)
+AGENT_oracle_HUB="hub-projects";  AGENT_oracle_SURFACE="standard"      # read-only
+AGENT_curator_HUB="hub-synapse";  AGENT_curator_SURFACE="full"         # authoring
+AGENT_lead_HUB="hub-projects";    AGENT_lead_SURFACE="orchestrator"    # + delegation (synapse ≥ 0.10)
 ```
+
+The `orchestrator` surface (synapse ≥ 0.10) is `full` **plus delegation**: `synapse_claim_and_brief`
+claims a job — a live or near-identical one is refused — and returns the doer's briefing, which the
+agent then launches with its own harness. Give it only to an agent that actually dispatches work; a
+read-only agent on `standard` never sees it.
 
 ### Per-agent concurrency and turn budget
 
