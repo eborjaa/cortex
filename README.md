@@ -66,9 +66,12 @@ cortex provision <name>            # mint keys + register on the relay + join th
 cortex attest [<name>...]          # owner attestation + relay directory record (prompts for the
                                    #   owner secret — required for an OBSERVABLE agent, see below)
 cortex sync-mcp-auth [<server>...] # copy your MCP OAuth into each agent's per-CWD project store
+cortex sync-directory [<name>...]  # reconcile kind:10100 directory records with live channel membership
 cortex start [all|relay|<name>]    # launch
 cortex stop  [all|relay|<name>]    # stop (per-agent; won't touch the others)
-cortex restart [all|<name>]
+cortex restart [all|<name>]        # stop + start
+cortex restart --idle [<name>...]  # roll out a config change ONLY on agents not mid-turn (names the skipped)
+cortex install-mcp-plugin          # install the operator MCP plugin into the vault (every agent sees it)
 cortex install-launchagents        # write ~/Library/LaunchAgents plists for this instance
 cortex launchd-load | launchd-unload
 cortex test-mcp                    # drive the vault's synapse-mcp and list its tools
@@ -136,10 +139,36 @@ door is read-only because the tools aren't registered, not because a prompt asks
 
 ```ini
 # factory.config
-STANDING=(oracle curator)
-AGENT_oracle_HUB="hub-projects";  AGENT_oracle_SURFACE="standard"   # read-only
-AGENT_curator_HUB="hub-synapse";  AGENT_curator_SURFACE="full"      # authoring
+STANDING=(oracle curator lead)
+AGENT_oracle_HUB="hub-projects";  AGENT_oracle_SURFACE="standard"      # read-only
+AGENT_curator_HUB="hub-synapse";  AGENT_curator_SURFACE="full"         # authoring
+AGENT_lead_HUB="hub-projects";    AGENT_lead_SURFACE="orchestrator"    # + delegation (synapse ≥ 0.10)
 ```
+
+The `orchestrator` surface (synapse ≥ 0.10) is `full` **plus delegation**: `synapse_claim_and_brief`
+claims a job — a live or near-identical one is refused — and returns the doer's briefing, which the
+agent then launches with its own harness. Give it only to an agent that actually dispatches work; a
+read-only agent on `standard` never sees it.
+
+### Per-agent concurrency and turn budget
+
+Each agent identity can run **N parallel workers** and carry its own **turn budget** — set per agent
+in `factory.config`:
+
+```ini
+AGENT_qa_lead_WORKERS="2"          # hold turns in N channels at once (buzz-acp --agents, 1..32)
+AGENT_runner_MAX_TURN="3600"       # absolute wall-clock cap per turn (seconds)
+AGENT_runner_IDLE_TIMEOUT="1800"   # max SILENCE before a turn is cancelled (reset by any output)
+```
+
+`MAX_TURN` / `IDLE_TIMEOUT` fall back to the globals `BUZZ_ACP_MAX_TURN_DURATION` /
+`BUZZ_ACP_IDLE_TIMEOUT`, and the **lower always wins** — `doctor` warns when `IDLE_TIMEOUT ≥ MAX_TURN`,
+which silently removes hang detection. Roll any of these out on the live fleet with
+`cortex restart --idle`, which cycles only the agents that are not mid-turn.
+
+> ⚠️ Workers share **one** working directory and git identity. Raising `WORKERS` past 1 for a
+> *code-writing* agent is safe only behind a write lock or a per-worker worktree — otherwise two turns
+> can land in the same checkout at once (a branch switch relocates the other worker's edits).
 
 ---
 
@@ -167,7 +196,8 @@ harness.
 - **Node ≥ 22** (matches `@eborja/synapse`).
 - **Bash** — works on macOS's default bash 3.2 (no associative arrays used).
 - **Buzz** (Block, Apache-2.0) built at `$BUZZ_REPO`, with Docker for its Postgres/Redis.
-- **`@eborja/synapse` ≥ 0.4** installed in your vault (provides `synapse` + `synapse-mcp`).
+- **`@eborja/synapse` ≥ 0.8** installed in your vault (provides `synapse` + `synapse-mcp`; the
+  documented add-an-agent flow uses `synapse new agent --addressable`, added in 0.8).
 - **An ACP runtime**: `claude-agent-acp` (recommended), `opencode` (sst/opencode ≥ 1.1 — uses whatever provider is configured in `~/.config/opencode/opencode.json`, so Anthropic, OpenAI, Ollama, custom endpoints, etc.), or `cursor-agent`.
 
 ---
