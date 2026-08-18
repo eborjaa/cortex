@@ -55,9 +55,9 @@ cortex_load() {
   # rendering against a hub that does not exist fails the launch. Override in factory.config.
   : "${DEFAULT_HUB:=hub-synapse}"
   # A standing agent is long-lived and answers on its own initiative, so its model choice is a
-  # STANDING cost, not a per-call one. Default to the cheaper mid-tier; override globally with MODEL=
-  # or per agent with AGENT_<name>_MODEL (e.g. a reasoning-heavy steward). MODEL=default defers to
-  # whatever the ACP runtime picks. `buzz-acp models --agent-command <runtime>` lists valid ids.
+  # STANDING cost, not a per-call one. Claude/Cursor default to the cheaper mid-tier; override globally
+  # with MODEL= or per agent with AGENT_<name>_MODEL. OpenCode always takes provider/model from its
+  # opencode.json. `buzz-acp models --agent-command <runtime>` lists valid ids for other runtimes.
   : "${MODEL:=sonnet}"
   # Publish encrypted ACP observer frames so a client can render the agent's live work (the Activity
   # panel). Without this the panel stays empty even while the agent runs. Set RELAY_OBSERVER=0 to mute.
@@ -120,7 +120,12 @@ agent_hub()         { local d; d="$(_agent_get "$1" HUB)";     echo "${d:-$DEFAU
 agent_profile()     { local d; d="$(_agent_get "$1" PROFILE)"; echo "${d:-standard}"; }
 agent_surface()     { local d; d="$(_agent_get "$1" SURFACE)"; echo "${d:-$SYNAPSE_MCP_SURFACE}"; }
 agent_runtime_for() { local d; d="$(_agent_get "$1" RUNTIME)"; echo "${d:-$BUZZ_SYNAPSE_AGENT_COMMAND}"; }
-agent_model()       { local d; d="$(_agent_get "$1" MODEL)";   echo "${d:-$MODEL}"; }
+# OpenCode owns provider/model selection in opencode.json. Never pass Cortex's Claude-oriented
+# MODEL default (or a stale per-agent override) into `opencode acp`.
+agent_model() {
+  [ "$(agent_runtime_for "$1")" = "opencode" ] && { echo default; return; }
+  local d; d="$(_agent_get "$1" MODEL)"; echo "${d:-$MODEL}"
+}
 
 # Extra environment for THIS agent's MCP server, as a ';'-separated KEY=VALUE list. Emitted into the
 # per-agent MCP wrapper by run-agent.sh, so a vault plugin can be configured per agent.

@@ -12,6 +12,10 @@ All notable changes to `@eborja/cortex`.
 ### Fixed
 - Existing agent keyfiles now update their relay URL with portable shell tooling on macOS and Linux.
 
+### Changed
+- OpenCode agents now always defer provider and model selection to `opencode.json`; Cortex omits
+  `--model` for `opencode acp` instead of passing the Claude-oriented `sonnet` default.
+
 ## 0.5.0 — 2026-08-12
 
 ### Added

@@ -159,6 +159,20 @@ claims a job — a live or near-identical one is refused — and returns the doe
 agent then launches with its own harness. Give it only to an agent that actually dispatches work; a
 read-only agent on `standard` never sees it.
 
+### OpenCode runtime
+
+Use OpenCode as the global runtime or for one agent:
+
+```ini
+BUZZ_SYNAPSE_AGENT_COMMAND="opencode"
+# AGENT_oracle_RUNTIME="opencode"
+```
+
+Cortex launches the official `opencode acp` server and deliberately does not pass `--model` for
+OpenCode. Provider and model selection therefore come entirely from OpenCode's
+`~/.config/opencode/opencode.json` configuration and credentials. `MODEL` and
+`AGENT_<name>_MODEL` continue to apply to the other runtimes.
+
 ### Per-agent concurrency and turn budget
 
 Each agent identity can run **N parallel workers** and carry its own **turn budget** — set per agent

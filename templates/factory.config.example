@@ -28,7 +28,10 @@ SYNAPSE_MCP_SURFACE="${SYNAPSE_MCP_SURFACE:-full}"                            # 
 PROMPT_SOURCE="${PROMPT_SOURCE:-render}"   # render → `synapse render`; file → prompts/<agent>.system.md
 # A standing agent answers on its own initiative, so its model is a STANDING cost. Defaults to the
 # cheaper mid-tier; `default` defers to the runtime. List ids: buzz-acp models --agent-command <runtime>
-MODEL="${MODEL:-sonnet}"                   # global default; AGENT_<name>_MODEL overrides per agent
+MODEL="${MODEL:-sonnet}"                   # Claude/Cursor default; OpenCode uses opencode.json
+# For OpenCode, provider/model selection always comes from ~/.config/opencode/opencode.json.
+# Set BUZZ_SYNAPSE_AGENT_COMMAND="opencode" or AGENT_<name>_RUNTIME="opencode"; Cortex will not
+# pass MODEL or AGENT_<name>_MODEL to OpenCode.
 RELAY_OBSERVER="${RELAY_OBSERVER:-1}"      # publish ACP observer frames → the client's Activity panel
 # Observer frames are encrypted TO THE OWNER, so RELAY_OBSERVER alone publishes nothing. Defaults to the
 # pubkey in BUZZ_OWNER_ENV. Set this when you WATCH from a different identity than you run admin ops
