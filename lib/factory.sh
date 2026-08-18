@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# factory.sh — Cortex harness core: doctor / status / start / stop / launchd / test-mcp / provision.
+# factory.sh — Cortex harness core: doctor / status / start / stop / services / test-mcp / provision.
 # Invoked by bin/cortex.mjs. All personal values come from the instance's factory.config; this file
 # ships in the package and holds none.
 set -euo pipefail
@@ -11,6 +11,7 @@ cortex_load
 CMD="${1:-status}"; shift || true
 LABEL_PREFIX="${CORTEX_LABEL_PREFIX:-com.cortex}"
 LAUNCH_DIR="$HOME/Library/LaunchAgents"
+SYSTEMD_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 # Buzz dev-DB creds (docker-compose defaults; override if you changed them)
 PG_PW="${BUZZ_PG_PASSWORD:-buzz_dev}"; PG_USER="${BUZZ_PG_USER:-buzz}"; PG_DB="${BUZZ_PG_DB:-buzz}"
 
@@ -22,6 +23,29 @@ FAIL=0
 # agent_env() and buzz_cli() now live in config.sh — every command that touches an agent keyfile or
 # the Buzz CLI needs them, not just this file.
 runtime()    { echo "$BUZZ_SYNAPSE_AGENT_COMMAND"; }
+
+systemd_unit_name() { echo "${LABEL_PREFIX}-$1.service"; }
+systemd_unit_path() { echo "$SYSTEMD_DIR/$(systemd_unit_name "$1")"; }
+systemd_unit_installed() {
+  [ "$(uname -s)" = "Linux" ] && command -v systemctl >/dev/null 2>&1 \
+    && [ -f "$(systemd_unit_path "$1")" ]
+}
+
+# Quote one systemd value without introducing a dependency on a platform-specific shell utility.
+systemd_quote() { printf '"%s"' "$(printf '%s' "$1" | sed 's/[\\"]/\\&/g')"; }
+systemd_path() {
+  local path="$1"
+  path="${path//\\/\\\\}"
+  path="${path// /\\x20}"
+  path="${path//\"/\\x22}"
+  path="${path//%/%%}"
+  printf '%s' "$path"
+}
+
+require_systemd() {
+  [ "$(uname -s)" = "Linux" ] || { echo "cortex: systemd commands are supported on Linux only" >&2; return 1; }
+  command -v systemctl >/dev/null 2>&1 || { echo "cortex: systemctl is required for systemd commands" >&2; return 1; }
+}
 
 # Is this agent MID-TURN right now?
 #
@@ -166,6 +190,13 @@ observer_owner_ok() {
 doctor() {
   echo "== doctor =="
   local rt; rt="$(runtime)"
+  echo "-- host --"
+  for tool in bash python3 curl nc pgrep pkill; do
+    command -v "$tool" >/dev/null 2>&1 && ok "$tool" || bad "$tool missing — install it with your OS package manager"
+  done
+  if [ "$(uname -s)" = "Linux" ]; then
+    command -v systemctl >/dev/null 2>&1 && ok "systemctl (Linux service manager)" || warn "systemctl missing — manual start works, systemd services unavailable"
+  fi
   echo "-- binaries --"
   [ -x "$BUZZ_REPO/target/debug/buzz-relay" ] || [ -x "$BUZZ_REPO/target/release/buzz-relay" ] \
     && ok "buzz-relay" || bad "buzz-relay missing — build Buzz in $BUZZ_REPO"
@@ -287,6 +318,11 @@ wait_port_up() {
 start_relay() {
   mkdir -p "$INSTANCE/logs"
   nc -z 127.0.0.1 3000 >/dev/null 2>&1 && { ok "relay already up"; return 0; }
+  if systemd_unit_installed relay; then
+    systemctl --user start "$(systemd_unit_name relay)" || { bad "start relay (systemd)"; return 1; }
+    wait_port_up 3000 12 && { ok "relay started (systemd)"; return 0; }
+    bad "relay failed (systemd)"; return 1
+  fi
   if [ -f "$LAUNCH_DIR/${LABEL_PREFIX}-relay.plist" ]; then launchctl_ensure relay
     wait_port_up 3000 12 && { ok "relay started (launchd)"; return 0; }; fi
   CORTEX_INSTANCE="$INSTANCE" nohup bash "$LIB/run-relay.sh" >>"$INSTANCE/logs/relay.log" 2>&1 &
@@ -298,6 +334,12 @@ start_agent() {
   local a="$1"; mkdir -p "$INSTANCE/logs"
   CORTEX_INSTANCE="$INSTANCE" bash "$LIB/provision-agent.sh" "$a"
   agent_running "$a" && { ok "$a already running"; return 0; }
+  if systemd_unit_installed "$a"; then
+    systemctl --user start "$(systemd_unit_name "$a")" || { bad "start $a (systemd)"; return 1; }
+    sleep 2
+    agent_running "$a" && { ok "started $a (systemd)"; return 0; }
+    bad "start $a failed (systemd)"; return 1
+  fi
   if [ -f "$LAUNCH_DIR/${LABEL_PREFIX}-$a.plist" ]; then launchctl_ensure "$a" || true; sleep 2
     agent_running "$a" && { ok "started $a (launchd)"; return 0; }; fi
   CORTEX_INSTANCE="$INSTANCE" nohup bash "$LIB/run-agent.sh" "$a" >/dev/null 2>&1 &
@@ -307,6 +349,10 @@ start_agent() {
 
 stop_agent() {
   local a="$1"
+  if systemd_unit_installed "$a" && systemctl --user stop "$(systemd_unit_name "$a")" 2>/dev/null; then
+    echo "  stopped $a (systemd)"
+    return 0
+  fi
   [ -f "$LAUNCH_DIR/${LABEL_PREFIX}-$a.plist" ] && { launchctl bootout "gui/$(id -u)/${LABEL_PREFIX}-$a" 2>/dev/null || launchctl unload "$LAUNCH_DIR/${LABEL_PREFIX}-$a.plist" 2>/dev/null || true; }
   if [ -f "$(agent_env "$a")" ]; then # shellcheck disable=SC1090
     . "$(agent_env "$a")"; pkill -f "buzz-acp.*${SEC:0:24}" 2>/dev/null || true; fi
@@ -320,6 +366,11 @@ stop_agent() {
 }
 
 stop_relay() {
+  if systemd_unit_installed relay && systemctl --user stop "$(systemd_unit_name relay)" 2>/dev/null; then
+    wait_port_free 3000 || true
+    echo "  stopped relay (systemd)"
+    return 0
+  fi
   [ -f "$LAUNCH_DIR/${LABEL_PREFIX}-relay.plist" ] && { launchctl bootout "gui/$(id -u)/${LABEL_PREFIX}-relay" 2>/dev/null || launchctl unload "$LAUNCH_DIR/${LABEL_PREFIX}-relay.plist" 2>/dev/null || true; }
   [ -f "$INSTANCE/logs/relay.pid" ] && { kill "$(cat "$INSTANCE/logs/relay.pid")" 2>/dev/null || true; rm -f "$INSTANCE/logs/relay.pid"; }
   pkill -f 'buzz-relay' 2>/dev/null || true
@@ -329,7 +380,8 @@ stop_relay() {
 
 # Emit a LaunchAgent plist for the relay or an agent. All paths absolute; CORTEX_INSTANCE passed in.
 write_plist() {
-  local kind="$1" plist prog
+  local kind plist
+  kind="$1"
   mkdir -p "$INSTANCE/launchd" "$LAUNCH_DIR"
   local common_env="    <key>CORTEX_INSTANCE</key><string>${INSTANCE}</string>
     <key>SYNAPSE_VAULT</key><string>${SYNAPSE_VAULT}</string>
@@ -398,6 +450,101 @@ launchd_unload() {
   for a in "${STANDING[@]}"; do launchctl bootout "gui/$(id -u)/${LABEL_PREFIX}-$a" 2>/dev/null || true; echo "  unloaded $a"; done
   launchctl bootout "gui/$(id -u)/${LABEL_PREFIX}-relay" 2>/dev/null || true; echo "  unloaded relay"
   wait_port_free 3000 || true          # finish the graceful drain before returning, so load is safe
+}
+
+# Emit user services for Linux. The source copies stay in the instance so they can be inspected and
+# regenerated; systemd loads the installed copies from ~/.config/systemd/user.
+write_systemd_unit() {
+  local kind unit
+  local bash_bin script working q_instance q_script q_working q_bash q_kind
+  kind="$1"
+  unit="$INSTANCE/systemd/$(systemd_unit_name "$kind")"
+  bash_bin="$(command -v bash)"
+  if [ "$kind" = "relay" ]; then
+    script="$LIB/run-relay.sh"; working="$BUZZ_REPO"
+  else
+    script="$LIB/run-agent.sh"; working="$INSTANCE"
+  fi
+  q_instance="$(systemd_quote "$INSTANCE")"
+  q_script="$(systemd_quote "$script")"
+  q_working="$(systemd_path "$working")"
+  q_bash="$(systemd_quote "$bash_bin")"
+  q_kind="$(systemd_quote "$kind")"
+  mkdir -p "$INSTANCE/systemd" "$SYSTEMD_DIR"
+  if [ "$kind" = "relay" ]; then
+    cat >"$unit" <<UNIT
+[Unit]
+Description=Cortex Buzz relay
+
+[Service]
+Type=simple
+WorkingDirectory=$q_working
+Environment=CORTEX_INSTANCE=$q_instance
+ExecStart=$q_bash $q_script
+Restart=always
+RestartSec=2
+TimeoutStopSec=45
+KillMode=control-group
+
+[Install]
+WantedBy=default.target
+UNIT
+  else
+    cat >"$unit" <<UNIT
+[Unit]
+Description=Cortex Buzz agent $kind
+
+[Service]
+Type=simple
+WorkingDirectory=$q_working
+Environment=CORTEX_INSTANCE=$q_instance
+ExecStart=$q_bash $q_script $q_kind
+Restart=always
+RestartSec=2
+TimeoutStopSec=45
+KillMode=control-group
+
+[Install]
+WantedBy=default.target
+UNIT
+  fi
+  cp "$unit" "$SYSTEMD_DIR/"
+  ok "wrote $(systemd_unit_name "$kind")"
+}
+
+install_systemd() {
+  require_systemd || return 1
+  echo "== install systemd user units =="
+  write_systemd_unit relay
+  for a in "${STANDING[@]}"; do write_systemd_unit "$a"; done
+  echo "Load with: cortex systemd-load"
+  echo "For boot without login: loginctl enable-linger"
+}
+
+systemd_load() {
+  require_systemd || return 1
+  [ -f "$(systemd_unit_path relay)" ] || { bad "systemd units missing — cortex install-systemd"; return 1; }
+  systemctl --user daemon-reload || { bad "systemd user manager unavailable"; return 1; }
+  wait_port_free 3000 || true
+  systemctl --user enable --now "$(systemd_unit_name relay)" \
+    && ok "loaded $(systemd_unit_name relay)" || bad "load relay"
+  wait_port_up 3000 12 && ok "relay :3000 ready" || warn "relay not answering yet"
+  for a in "${STANDING[@]}"; do
+    systemctl --user enable --now "$(systemd_unit_name "$a")" \
+      && ok "loaded $(systemd_unit_name "$a")" || bad "load $a"
+  done
+  return $FAIL
+}
+
+systemd_unload() {
+  require_systemd || return 1
+  for a in "${STANDING[@]}"; do
+    systemctl --user disable --now "$(systemd_unit_name "$a")" 2>/dev/null || true
+    echo "  unloaded $a"
+  done
+  systemctl --user disable --now "$(systemd_unit_name relay)" 2>/dev/null || true
+  wait_port_free 3000 || true
+  echo "  unloaded relay"
 }
 
 test_mcp() {
@@ -499,6 +646,9 @@ case "$CMD" in
   install-launchagents) install_launchagents ;;
   launchd-load) launchd_load; exit $FAIL ;;
   launchd-unload) launchd_unload ;;
+  install-systemd) install_systemd ;;
+  systemd-load) systemd_load; exit $FAIL ;;
+  systemd-unload) systemd_unload ;;
   test-mcp) test_mcp; exit $FAIL ;;
   agents-sync) agents_sync ;;
   *) echo "unknown factory command: $CMD" >&2; exit 2 ;;

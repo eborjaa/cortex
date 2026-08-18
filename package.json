@@ -9,6 +9,9 @@
   "bin": {
     "cortex": "bin/cortex.mjs"
   },
+  "scripts": {
+    "test": "bash test/smoke.sh"
+  },
   "files": [
     "bin/",
     "lib/",

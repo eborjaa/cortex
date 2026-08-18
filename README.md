@@ -53,6 +53,13 @@ npx cortex start all              # launch relay + agents
 npx cortex install-launchagents && npx cortex launchd-load   # keep them alive (macOS)
 ```
 
+On Linux, use systemd user services instead:
+
+```bash
+cortex install-systemd && cortex systemd-load
+loginctl enable-linger                         # optional: start after reboot without login
+```
+
 Then @mention `oracle` / `curator` in your Buzz channel.
 
 ---
@@ -74,6 +81,8 @@ cortex restart --idle [<name>...]  # roll out a config change ONLY on agents not
 cortex install-mcp-plugin          # install the operator MCP plugin into the vault (every agent sees it)
 cortex install-launchagents        # write ~/Library/LaunchAgents plists for this instance
 cortex launchd-load | launchd-unload
+cortex install-systemd              # write ~/.config/systemd/user units (Linux)
+cortex systemd-load | systemd-unload
 cortex test-mcp                    # drive the vault's synapse-mcp and list its tools
 cortex status
 ```
@@ -183,6 +192,7 @@ my-agents/
   .cortex/           # generated at launch — rendered prompts + per-agent MCP wrappers (gitignored)
   logs/              # runtime logs (gitignored)
   launchd/           # generated LaunchAgent plists
+  systemd/           # generated systemd user units (Linux)
 ```
 
 Secrets never live here — agent keys stay in `~/.config/buzz/agents/`. `factory.config`
@@ -194,11 +204,31 @@ harness.
 ## 📦 Requirements
 
 - **Node ≥ 22** (matches `@eborja/synapse`).
-- **Bash** — works on macOS's default bash 3.2 (no associative arrays used).
+- **Bash** — works on macOS's default bash 3.2 and Linux (no associative arrays used).
+- **Python 3**, **curl**, **netcat**, **procps** (`pgrep` / `pkill`). Cortex uses these for JSON,
+  health checks, HTTP publishing, and process supervision.
 - **Buzz** (Block, Apache-2.0) built at `$BUZZ_REPO`, with Docker for its Postgres/Redis.
 - **`@eborja/synapse` ≥ 0.8** installed in your vault (provides `synapse` + `synapse-mcp`; the
   documented add-an-agent flow uses `synapse new agent --addressable`, added in 0.8).
 - **An ACP runtime**: `claude-agent-acp` (recommended), `opencode` (sst/opencode ≥ 1.1 — uses whatever provider is configured in `~/.config/opencode/opencode.json`, so Anthropic, OpenAI, Ollama, custom endpoints, etc.), or `cursor-agent`.
+
+### Linux packages
+
+Ubuntu/Debian:
+
+```bash
+sudo apt install bash curl netcat-openbsd procps python3
+```
+
+Arch:
+
+```bash
+sudo pacman -S bash curl openbsd-netcat procps-ng python
+```
+
+Ubuntu, Debian, and Arch use systemd user services by default. `cortex systemd-load` enables the
+relay and each standing agent; run `loginctl enable-linger` if they must survive logout and start
+at boot. Native Windows is not supported; WSL is outside the supported matrix.
 
 ---
 
