@@ -9,6 +9,8 @@
 //   cortex restart [all|<name>]
 //   cortex install-launchagents     write ~/Library/LaunchAgents plists for this instance
 //   cortex launchd-load | launchd-unload
+//   cortex install-systemd          write systemd user units for this instance
+//   cortex systemd-load | systemd-unload
 //   cortex test-mcp                 drive the vault's synapse-mcp and list its tools
 //   cortex status
 //
@@ -26,7 +28,8 @@ const [cmd, ...rest] = process.argv.slice(2);
 const SHELL_CMDS = new Set([
   "doctor", "status", "start", "start-relay", "stop", "restart", "provision",
   "attest", "sync-mcp-auth", "sync-directory", "install-mcp-plugin",
-  "install-launchagents", "launchd-load", "launchd-unload", "test-mcp", "agents-sync",
+  "install-launchagents", "launchd-load", "launchd-unload",
+  "install-systemd", "systemd-load", "systemd-unload", "test-mcp", "agents-sync",
 ]);
 
 if (!cmd || cmd === "--help" || cmd === "-h" || cmd === "help") {
@@ -52,6 +55,8 @@ usage: cortex <command> [args]
                                 process start; a blanket restart silently kills in-flight turns)
   install-launchagents          write LaunchAgent plists for this instance
   launchd-load | launchd-unload
+  install-systemd               write systemd user units for this instance (Linux)
+  systemd-load | systemd-unload
   test-mcp                      drive the vault's synapse-mcp, list tools
   status
 

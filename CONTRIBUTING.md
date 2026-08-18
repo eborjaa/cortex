@@ -8,9 +8,9 @@ anyone's personal config. Thanks for helping.
 
 1. **`shellcheck` clean** on the shell scripts:
    ```bash
-   shellcheck lib/*.sh
+   shellcheck -S warning lib/*.sh
    ```
-2. **Bash 3.2 compatible.** macOS ships bash 3.2 (2007); it's the floor. No associative arrays
+2. **Bash 3.2 compatible.** macOS ships bash 3.2 (2007); it's the floor for macOS and Linux. No associative arrays
    (`declare -A`), no `${var^^}`, no `mapfile`. Per-agent settings use flat `AGENT_<name>_<FIELD>`
    vars read by indirect expansion — keep to that pattern.
 3. **No personal data.** No hardcoded `/Users/...` paths, real channel IDs, agent rosters, or keys in
