@@ -27,9 +27,11 @@ cortex_load
 # shellcheck disable=SC1091
 . "$LIB/directory-record.sh"
 
+# shellcheck disable=SC2034 # consumed by publish_directory_record in directory-record.sh
 BUZZ="$(buzz_cli)"
 SIGN="$BUZZ_REPO/target/release/examples/sign_event"
 [ -x "$SIGN" ] || SIGN="$BUZZ_REPO/target/debug/examples/sign_event"
+# shellcheck disable=SC2034 # consumed by publish_directory_record in directory-record.sh
 RELAY_HTTP="${BUZZ_RELAY_HTTP:-http://localhost:3000}"
 
 [ -x "$SIGN" ] || { echo "cortex sync-directory: missing sign_event at $SIGN

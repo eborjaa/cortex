@@ -2,6 +2,16 @@
 
 All notable changes to `@eborja/cortex`.
 
+## Unreleased
+
+### Added
+- Linux support for Ubuntu, Debian, and Arch through generated systemd user units:
+  `install-systemd`, `systemd-load`, and `systemd-unload`.
+- Host dependency checks for `doctor`, plus Linux installation guidance.
+
+### Fixed
+- Existing agent keyfiles now update their relay URL with portable shell tooling on macOS and Linux.
+
 ## 0.5.0 — 2026-08-12
 
 ### Added

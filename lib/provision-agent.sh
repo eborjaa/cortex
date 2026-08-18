@@ -41,7 +41,10 @@ ADMIN_RELAY="${BUZZ_RELAY_URL:-ws://localhost:3000}"
 # One file therefore carries everything an agent needs to publish. HTTP form — that is what the CLI wants.
 AGENT_RELAY="${BUZZ_RELAY_HTTP:-http://localhost:3000}"
 if grep -q '^BUZZ_RELAY_URL=' "$KEYFILE" 2>/dev/null; then
-  sed -i '' "s|^BUZZ_RELAY_URL=.*|BUZZ_RELAY_URL=$AGENT_RELAY|" "$KEYFILE"
+  # Portable in-place update: BSD sed and GNU sed use different -i syntax.
+  tmp="$(mktemp "${KEYFILE}.tmp.XXXXXX")"
+  sed "s|^BUZZ_RELAY_URL=.*|BUZZ_RELAY_URL=$AGENT_RELAY|" "$KEYFILE" >"$tmp"
+  mv "$tmp" "$KEYFILE"
 else
   printf 'BUZZ_RELAY_URL=%s\n' "$AGENT_RELAY" >>"$KEYFILE"
 fi
